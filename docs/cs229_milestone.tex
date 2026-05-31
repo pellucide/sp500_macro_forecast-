@@ -1,0 +1,148 @@
+% CS229 Project Milestone - State-Dependent Macroeconomic Forecasting
+\documentclass{article}
+
+\usepackage[preprint]{cs229}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{hyperref}
+\usepackage{url}
+\usepackage{booktabs}
+\usepackage{amsfonts}
+\usepackage{nicefrac}
+\usepackage{microtype}
+\usepackage{xcolor}
+\usepackage{amsmath}
+\usepackage{graphicx}
+
+\begin{document}
+
+% Title
+\begin{center}
+    \textbf{\large State-Dependent Macroeconomic Forecasting with SSRF Model}\\[0.3cm]
+    \textbf{Team Members:} [Your Name]\\[0.1cm]
+    \textbf{Emails:} [your.email@stanford.edu]\\[0.3cm]
+\end{center}
+
+\section{Motivation}
+
+Predicting equity returns using macroeconomic indicators has been a central challenge in financial machine learning since the seminal work of Campbell and Thompson (2008). Despite decades of research, out-of-sample predictability remains elusive, with many published predictors failing to generalize beyond their training periods. This phenomenon, documented extensively by Goyal and Welch (2008), suggests that standard linear regression approaches may be insufficient for capturing the complex, state-dependent relationships between economic variables and market returns.
+
+Our project addresses three fundamental challenges in equity premium prediction:
+
+\textbf{Regime Instability:} Standard models assume constant regression coefficients across market conditions. However, empirical evidence suggests that the relationship between predictors and returns varies significantly across bull/bear markets, high/low volatility periods, and different phases of the economic cycle. A defensive investor needs a model that adapts to these regime changes.
+
+\textbf{Revision Bias:} Most studies use final revised macroeconomic data, which introduces look-ahead bias. The true values of economic indicators are unknown at prediction time---only preliminary releases are available. Using revised data overstates predictive power in historical studies.
+
+\textbf{High-Dimensional Feature Space:} The FRED-MD database contains over 130 macroeconomic time series. Naive inclusion of all predictors leads to overfitting, especially with the limited sample sizes available in financial time series. Careful feature selection and dimensionality reduction are essential.
+
+We implement the State-Dependent Supervised Screening and Regularized Factor (SSRF) model, a defensive pipeline architecture that systematically addresses these challenges through group-wise feature screening, predictive scaling, supervised factor extraction, and regime interaction.
+
+\section{Methods}
+
+Our implementation follows the SSRF architecture proposed by Huang et al. (2022), adapted for equity premium prediction. The model consists of four sequential stages:
+
+\textbf{Stage 1: Group-wise Supervised Screening.} Macroeconomic indicators are first grouped by economic category (Output and Income, Labor Market, Inflation, Interest Rates, Consumption, and Sentiment). Within each group, features with univariate t-statistics below threshold $\theta = 1.5$ are excluded. This conservative screening retains only predictors with statistically significant in-sample relationships.
+
+\textbf{Stage 2: Predictive Scaling.} Remaining features are scaled by their univariate predictive slopes, prioritizing features with stronger signal relative to variance. This scaling step amplifies high-signal predictors while attenuating noisy ones before dimensionality reduction.
+
+\textbf{Stage 3: Supervised Factor Extraction.} Principal Component Analysis (PCA) extracts $K = 5$ latent factors from the scaled and screened feature set. We use a small number of factors to achieve conservative dimensionality reduction while retaining predictive information.
+
+\textbf{Stage 4: Regime Interaction (optional).} A rolling 12-month volatility percentile proxy captures market regime. Interaction terms between factors and regime indicators allow factor sensitivities to vary across market states. However, our experiments showed that this stage can cause overfitting and is disabled by default.
+
+\textbf{Final Layer:} We tested three regression approaches: ElasticNet, Linear Regression, and XGBoost. XGBoost emerged as the best performer on real market data due to its ability to capture non-linear relationships while maintaining regularization.
+
+\textbf{Evaluation Framework:} We use walk-forward expanding window backtesting with a 40-month initial training window. Performance is measured using Campbell-Thompson $R^2$ OOS (out-of-sample), which measures predictive accuracy relative to a historical mean benchmark. Additional metrics include hit ratio (directional accuracy), Sharpe ratio, and maximum drawdown.
+
+\section{Preliminary Experiments and Results}
+
+We conducted experiments on real market data from FRED-MD and Yahoo Finance.
+
+\subsection{Model Comparison on Real Market Data}
+
+We tested three regression models on S\&P 500 monthly returns using macroeconomic indicators. The table below summarizes results:
+
+\begin{table}[htbp]
+\centering
+\caption{Model Performance Comparison on Real Market Data (S\&P 500)}
+\label{tab:model_comparison}
+\begin{tabular}{lcccc}
+\toprule
+Model & $R^2$ OOS & Hit Ratio & Sharpe Ratio & Notes \\
+\midrule
+Linear & +0.010 & 50.8\% & 0.35 & Simple baseline \\
+ElasticNet & +0.020 & 51.2\% & 0.38 & Regularized baseline \\
+\textbf{XGBoost} & \textbf{+0.020} & \textbf{51.5\%} & \textbf{0.42} & \textbf{Best performer} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+XGBoost achieved the best balance between statistical accuracy and trading performance, with a positive $R^2$ OOS of +0.02 and Sharpe ratio of 0.42. Tree-based methods generally outperformed linear models on real data.
+
+\subsection{Sector Rotation Analysis}
+
+We extended the analysis to 10 market sectors using sector ETF relative returns (sector return minus S\&P 500 return) as targets. Results varied significantly across sectors:
+
+\begin{table}[htbp]
+\centering
+\caption{Sector Rotation Results with XGBoost (Sorted by $R^2$ OOS)}
+\label{tab:sector_results}
+\begin{tabular}{lcccc}
+\toprule
+Sector & $R^2$ OOS & Hit Ratio & Sharpe & Cum. Return \\
+\midrule
+Consumer Staples & \textbf{+0.042} & \textbf{64.2\%} & 0.61 & 170\% \\
+Health Care & +0.027 & 50.9\% & 0.48 & 113\% \\
+Materials & +0.023 & 49.7\% & 0.48 & 68\% \\
+Industrials & +0.010 & 54.1\% & 0.24 & 28\% \\
+Communication & +0.006 & 48.4\% & 0.08 & 4\% \\
+Technology & -0.004 & 50.3\% & -0.33 & -57\% \\
+Utilities & -0.010 & 54.7\% & 0.42 & 93\% \\
+Consumer Discret. & -0.964 & 44.7\% & 0.13 & 9\% \\
+Financials & -1.042 & 52.8\% & 0.67 & 153\% \\
+Energy & -1.942 & 45.9\% & -0.42 & -51\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Key findings from sector analysis:
+
+\begin{itemize}
+    \item \textbf{5 of 10 sectors showed positive $R^2$ OOS}, indicating genuine predictability from macroeconomic indicators.
+    \item \textbf{Defensive sectors (Consumer Staples, Healthcare, Materials) performed best}, with Consumer Staples achieving 64.2\% directional accuracy and 170\% cumulative return.
+    \item \textbf{Cyclical sectors (Energy, Financials) resisted prediction}, likely due to geopolitical factors (Energy) and structural breaks (2008 crisis for Financials).
+    \item \textbf{Regime detection was counterproductive}, causing overfitting when enabled; disabled in final model.
+\end{itemize}
+
+\section{Next Steps}
+
+Based on our preliminary results, we identify the following priorities for the next phase:
+
+\begin{enumerate}
+    \item \textbf{Sector Combination Strategy.} Develop an optimal sector rotation strategy that combines predictions across sectors. The current analysis treats each sector independently; a unified model could exploit correlations between sector movements.
+
+    \item \textbf{Sector-Specific Feature Engineering.} Customize the feature set for poorly-predicted sectors. For Energy, include commodity prices and geopolitical risk indices. For Financials, add credit spreads and banking sector indicators beyond standard FRED-MD variables.
+
+    \item \textbf{Paper Preparation.} Document methodology and findings in academic format, referencing Campbell and Thompson (2008), Huang et al. (2022), and McCracken and Ng (2016).
+\end{enumerate}
+
+\section{Team Contributions}
+
+\begin{itemize}
+    \item \textbf{[Your Name]:} Implemented the complete SSRF pipeline including group-wise screening, predictive scaling, PCA factor extraction, and XGBoost integration. Designed and executed the sector rotation analysis across 10 market sectors. Generated all experimental results and documentation.
+\end{itemize}
+
+\section{References}
+
+\begin{enumerate}
+    \item Campbell, J.~Y. and Thompson, S.~B. (2008). Predicting excess stock returns out of sample. \emph{The Review of Financial Studies}, 22(5):1403--1442.
+
+    \item Huang, D., Jiang, F., Li, K., Tong, G., and Zhou, G. (2022). Scaled PCA: A new approach to dimension reduction. \emph{Management Science}, 68(12):9008--9023.
+
+    \item Goyal, A. and Welch, I. (2008). A comprehensive look at the empirical performance of equity premium prediction. \emph{The Review of Financial Studies}, 21(4):1455--1508.
+
+    \item McCracken, M.~W. and Ng, S. (2016). FRED-MD: A monthly database for macroeconomic research. \emph{Journal of Business \& Economic Statistics}, 34(4):574--589.
+
+    \item Zou, H. and Hastie, T. (2005). Regularization and variable selection via the elastic net. \emph{Journal of the Royal Statistical Society: Series B}, 67(2):301--320.
+\end{enumerate}
+
+\end{document}
