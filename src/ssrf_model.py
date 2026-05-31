@@ -82,6 +82,13 @@ class SSRFConfig:
     # 0.75 = only trade when very confident signals
     conviction_filter_enabled: bool = False  # Enable high-conviction filtering
 
+    # Prediction scaling
+    # SSRF predictions are often very small due to heavy regularization.
+    # This parameter scales up predictions to capture more return.
+    # Default: 1.0 (no scaling)
+    # Recommended range: 5.0 - 20.0 for most applications
+    prediction_scale: float = 1.0  # Multiply predictions by this factor
+
 
 @dataclass
 class ModelState:
@@ -981,6 +988,11 @@ class SSRFModel:
             logger.warning(f"Prediction failed: {e}")
             # Return zero predictions as fallback
             predictions = np.zeros(len(X))
+
+        # Apply prediction scaling
+        if self.config.prediction_scale != 1.0:
+            predictions = predictions * self.config.prediction_scale
+            logger.debug(f"Applied prediction scale: {self.config.prediction_scale}")
 
         return pd.Series(predictions, index=X.index, name='prediction')
 

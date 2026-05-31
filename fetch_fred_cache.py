@@ -71,9 +71,10 @@ INDICATORS = {
     'UMCSENT': 'Consumer Sentiment',
     'IC4WSA': 'Capacity Utilization',
 
-    # Money Supply
+    # Money Supply - M1, M2, M3
+    'M1SL': 'M1 Money Supply',
     'M2SL': 'M2 Money Supply',
-    'M2SL_pct': 'M2 Growth YoY',
+    'M3SL': 'M3 Money Supply',
 
     # Credit
     'BAAFFM': 'BAA-10Y Spread',
@@ -223,9 +224,38 @@ def compute_derived_features(df: pd.DataFrame) -> pd.DataFrame:
         derived['VIX_REGIME_HIGH'] = (df['VIXCLS'] > 25).astype(int)
         derived['VIX_REGIME_LOW'] = (df['VIXCLS'] < 15).astype(int)
 
-    # Momentum of M2
+    # Momentum of M1, M2, M3
+    if 'M1SL' in df.columns:
+        derived['M1_GROWTH_12M'] = df['M1SL'].pct_change(12) * 100
+        derived['M1_GROWTH_6M'] = df['M1SL'].pct_change(6) * 100
+        derived['M1_GROWTH_3M'] = df['M1SL'].pct_change(3) * 100
+        # M1 Velocity proxy
+        derived['M1_ACCEL'] = derived['M1_GROWTH_3M'] - derived['M1_GROWTH_12M']
+
     if 'M2SL' in df.columns:
         derived['M2_GROWTH_12M'] = df['M2SL'].pct_change(12) * 100
+        derived['M2_GROWTH_6M'] = df['M2SL'].pct_change(6) * 100
+        derived['M2_GROWTH_3M'] = df['M2SL'].pct_change(3) * 100
+        # M2 Velocity proxy
+        derived['M2_ACCEL'] = derived['M2_GROWTH_3M'] - derived['M2_GROWTH_12M']
+
+    if 'M3SL' in df.columns:
+        derived['M3_GROWTH_12M'] = df['M3SL'].pct_change(12) * 100
+        derived['M3_GROWTH_6M'] = df['M3SL'].pct_change(6) * 100
+        derived['M3_GROWTH_3M'] = df['M3SL'].pct_change(3) * 100
+        # M3 Velocity proxy
+        derived['M3_ACCEL'] = derived['M3_GROWTH_3M'] - derived['M3_GROWTH_12M']
+
+    # Money Supply Ratios
+    if 'M1SL' in df.columns and 'M2SL' in df.columns:
+        derived['M1_M2_RATIO'] = df['M1SL'] / df['M2SL']
+
+    if 'M2SL' in df.columns and 'M3SL' in df.columns:
+        derived['M2_M3_RATIO'] = df['M2SL'] / df['M3SL']  # M2 as % of M3
+
+    # Money Supply Divergence (M1 vs M3 growth difference)
+    if 'M1_GROWTH_12M' in derived.columns and 'M3_GROWTH_12M' in derived.columns:
+        derived['M1_VS_M3_GROWTH'] = derived['M1_GROWTH_12M'] - derived['M3_GROWTH_12M']
 
     # Unemployment trend
     if 'UNRATE' in df.columns:
