@@ -95,7 +95,8 @@ class FREDDataLoader:
         try:
             if vintage_date and DataConfig.USE_REALTIME_VINTAGES:
                 # Fetch vintage data from ALFRED
-                data = self.fred.get_observations(
+                # Note: fredapi's get_series() supports vintage_date parameter
+                data = self.fred.get_series(
                     indicator,
                     observation_start=start_date,
                     observation_end=end_date,
