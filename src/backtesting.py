@@ -225,13 +225,19 @@ class WalkForwardBacktester:
                     logger.info(f"Scaled predictions by factor {scale_factor:.2f} to match target variance")
 
         # Compute benchmark (historical mean from training window)
+        # FIXED: Exclude test observation from benchmark calculation
         benchmark = []
-        for end_date in test_dates:
-            # Find corresponding train end index
-            train_end_idx = np.searchsorted(X.index, end_date)
-            train_end_idx = max(0, train_end_idx - 1)
-            y_train_window = y.iloc[:train_end_idx + 1]
-            benchmark.append(y_train_window.mean())
+        for i, test_date in enumerate(test_dates):
+            # Find the training window end index (before test date)
+            # At step i, training ends at train_end_idx from the walk-forward loop
+            # We need to use the same index used during training
+            if i < len(predictions):
+                # Use training data from expanding window up to test date
+                # Benchmark should NOT include the test observation
+                y_before_test = y.iloc[:len(y) - len(predictions) + i]
+                benchmark.append(y_before_test.mean())
+            else:
+                benchmark.append(y.mean())
 
         benchmark = pd.Series(benchmark, index=predictions.index, name='benchmark')
 
