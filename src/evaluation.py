@@ -489,7 +489,7 @@ def generate_report(
             'r2_oos': metrics.r2_oos,
             'r2_oos_adjusted': metrics.r2_oos_adjusted,
             'mse': metrics.mse,
-            'mae': metrics.mape,  # Note: dict uses mape, object uses mape
+            'mae': metrics.mae,
             'hit_ratio': metrics.hit_ratio,
             'sharpe_ratio': metrics.sharpe_ratio,
             'sortino_ratio': metrics.sortino_ratio,
