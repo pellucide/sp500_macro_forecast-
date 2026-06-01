@@ -922,16 +922,23 @@ class SSRFModel:
         factors = self.factor_extractor.transform(X_scaled)
 
         # Stage 4: Regime proxy and interactions
+        # NOTE: y_for_regime contains historical returns ending at the prediction date.
+        # The regime proxy represents market volatility state at that specific point in time.
+        # For batch predictions, ALL samples use the same regime (computed from y_for_regime history).
+        # For per-sample regime proxies, call predict() in a loop with updated y_for_regime.
+        n_samples = len(X)
         if y_for_regime is not None:
             rolling_vol = self.regime_proxy.compute_rolling_volatility(
                 y_for_regime, self.config.regime_window
             )
             regime_p_full = self.regime_proxy.compute_percentile_rank(rolling_vol, rolling_vol)
-            # For single prediction, get the regime proxy for the test date
-            regime_p = regime_p_full.iloc[[-1]]  # Last value corresponds to test date
+            # Get the regime proxy for the prediction date (last value in the history)
+            regime_p_value = regime_p_full.iloc[-1]
+            # Apply the SAME regime proxy to ALL samples in the batch
+            regime_p = pd.Series([regime_p_value] * n_samples, index=X.index)
         else:
             # Use training distribution
-            regime_p = pd.Series([0.5], index=X.index)
+            regime_p = pd.Series([0.5] * n_samples, index=X.index)
 
         X_final = self.regime_proxy.create_interaction_terms(factors, regime_p)
         X_final = X_final.fillna(0)
@@ -946,11 +953,13 @@ class SSRFModel:
                     current_regime = 'unknown'
 
                 # Get regime features from training state
+                # Apply the SAME regime feature values to ALL samples in the batch
                 if self.state.regime_features is not None:
-                    # Add last regime feature value for current prediction
+                    last_regime_values = self.state.regime_features.iloc[-1]  # Get as Series
                     for col in self.state.regime_features.columns:
                         if col not in X_final.columns:
-                            X_final[col] = self.state.regime_features[col].iloc[-1]
+                            # Repeat the last value for all samples
+                            X_final[col] = [last_regime_values[col]] * n_samples
 
                 logger.debug(f"Current regime: {current_regime}")
 
