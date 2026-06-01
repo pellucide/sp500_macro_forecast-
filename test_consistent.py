@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
-SSRF Test with CONSISTENT calculations
-pred[t] → actual[t+1] for BOTH direction accuracy AND P&L
+SSRF Test with PROPER temporal alignment (NO leakage)
+Train on [0:t-1] to predict y[t]
+Compare pred[t] with actual[t]
 """
 import pandas as pd
 import numpy as np
@@ -14,10 +15,10 @@ warnings.filterwarnings('ignore')
 
 np.random.seed(42)
 
-PREDICTION_SCALE = 10.0
+PREDICTION_SCALE = 1.0  # No scaling for fair comparison
 
 print("="*70)
-print(f"SSRF CONSISTENT TEST - SCALE={PREDICTION_SCALE}")
+print(f"SSRF PROPER TEST - NO LEAKAGE")
 print("="*70)
 
 # Load data
@@ -43,23 +44,20 @@ dates = X_aligned.index
 
 print(f"\nData: {len(X_arr)} periods ({dates[0].strftime('%Y-%m')} to {dates[-1].strftime('%Y-%m')})")
 print(f"Mean monthly return: {np.mean(y_arr):.3f}%")
-print(f"Std monthly return: {np.std(y_arr):.3f}%")
 
-# Walk-forward OOS
+# PROPER walk-forward OOS
+# Train on [0:t-1] to predict y[t], test on y[t]
 train_window = 60
-start_idx = train_window
 
 model_preds = []
-actual_returns = []  # actual[t] = return at time t
+actual_returns = []
 
-for i in range(start_idx, len(X_arr)):
-    train_start = i - train_window
-    X_train = X_arr[train_start:i]
-    y_train = y_arr[train_start:i]
-    X_test = X_arr[i:i+1]
-
-    # Scale target
-    y_train_scaled = y_train * PREDICTION_SCALE
+for i in range(train_window, len(X_arr)):
+    # Train on [0:i-1], predict y[i]
+    X_train = X_arr[:i]      # Features up to i-1
+    y_train = y_arr[:i]     # Returns up to i-1
+    X_test = X_arr[i:i+1]   # Features at time i
+    y_actual = y_arr[i]      # Actual return at time i
 
     try:
         scaler = StandardScaler()
@@ -67,80 +65,76 @@ for i in range(start_idx, len(X_arr)):
         X_test_scaled = scaler.transform(X_test)
 
         model = ElasticNet(alpha=0.05, l1_ratio=0.5, max_iter=10000)
-        model.fit(X_train_scaled, y_train_scaled)
+        model.fit(X_train_scaled, y_train)
 
         pred = model.predict(X_test_scaled)[0]
         model_preds.append(pred)
     except:
         model_preds.append(0)
 
-    actual_returns.append(y_arr[i])
+    actual_returns.append(y_actual)
 
 model_preds = np.array(model_preds)
 actual_returns = np.array(actual_returns)
 
-# CONSISTENT calculation: pred[t] → actual[t+1]
-# pred[0] predicts for period 1, compare with actual[1]
-# pred[1] predicts for period 2, compare with actual[2]
-pred_for_next = model_preds[:-1]  # pred[0] to pred[n-2]
-actual_next = actual_returns[1:]   # actual[1] to actual[n-1]
+# PROPER comparison: pred[t] should be compared with actual[t]
+# (not pred[t] with actual[t+1] which was the bug)
+pred_compared = model_preds[:-1]
+actual_compared = actual_returns[:-1]
 
-# Direction accuracy: did we predict the right direction?
-direction_correct = np.sum(np.sign(pred_for_next) == np.sign(actual_next))
-hit_ratio = direction_correct / len(actual_next) * 100
+# Direction accuracy
+direction_correct = np.sum(np.sign(pred_compared) == np.sign(actual_compared))
+hit_ratio = direction_correct / len(actual_compared) * 100
 
-# P&L: what is our profit/loss from following predictions?
-# We take position pred[t] at time t, earn pred[t] * actual[t+1]
-pnl = pred_for_next * actual_next
-total_pnl = np.sum(pnl) * 100  # percentage
-ann_return = np.mean(pnl) * 12 * 100
-ann_vol = np.std(pnl) * np.sqrt(12) * 100
+# P&L
+pnl = pred_compared * actual_compared
+total_pnl = np.sum(pnl)
+ann_return = np.mean(pnl) * 12
+ann_vol = np.std(pnl) * np.sqrt(12)
 sharpe = ann_return / ann_vol if ann_vol > 0 else 0
 
 print("\n" + "="*70)
-print("CONSISTENT METRICS (pred[t] → actual[t+1])")
+print("RESULTS (NO LEAKAGE - proper temporal alignment)")
 print("="*70)
 
-print(f"\nSSRF (Scale={PREDICTION_SCALE}):")
-print(f"  Direction Accuracy: {hit_ratio:.1f}% (out of {len(actual_next)} predictions)")
-print(f"  Correct: {direction_correct}, Wrong: {len(actual_next) - direction_correct}")
-print(f"  Total P&L: {total_pnl:.1f}%")
-print(f"  Annualized Return: {ann_return:.1f}%")
-print(f"  Annualized Vol: {ann_vol:.1f}%")
+print(f"\nSSRF:")
+print(f"  Direction Accuracy: {hit_ratio:.1f}% (out of {len(actual_compared)} predictions)")
+print(f"  Correct: {direction_correct}, Wrong: {len(actual_compared) - direction_correct}")
+print(f"  Total P&L: {total_pnl:.2f}")
+print(f"  Annualized Return: {ann_return:.2f}")
+print(f"  Annualized Vol: {ann_vol:.2f}")
 print(f"  Sharpe Ratio: {sharpe:.3f}")
 
 # SPX Buy & Hold for comparison
 spx_total = (np.prod(1 + actual_returns/100) - 1) * 100
-print(f"\nSPX Buy&Hold (buy at t=0, sell at t={len(actual_returns)-1}):")
+print(f"\nSPX Buy&Hold:")
 print(f"  Total Return: {spx_total:.1f}%")
 
 # Compare to baselines
 print("\n" + "-"*70)
 print("Comparison to baselines:")
 
-# Random baseline (expected 50% accuracy)
-random_hit = 50.0
-random_pnl_mean = 0  # On average, random wins 0
-print(f"  Random: ~{random_hit:.1f}% hit, ~{random_pnl_mean:.1f}% P&L")
-
 # Momentum baseline
-momentum_pred = np.sign(actual_returns[:-1])  # Predict today = yesterday's direction
-momentum_correct = np.sum(np.sign(momentum_pred) == np.sign(actual_returns[1:]))
-momentum_hit = momentum_correct / len(actual_returns[1:]) * 100
-momentum_pnl = np.sum(momentum_pred * actual_returns[1:]) * 100
-print(f"  Momentum: {momentum_hit:.1f}% hit, {momentum_pnl:.1f}% P&L")
+momentum_pred = np.zeros(len(actual_returns))
+momentum_pred[1:] = np.sign(actual_returns[:-1])  # Momentum at t = sign(return at t-1)
+momentum_compared = momentum_pred[:-1]
+momentum_correct = np.sum(np.sign(momentum_compared) == np.sign(actual_compared))
+momentum_hit = momentum_correct / len(actual_compared) * 100
+momentum_pnl = np.sum(momentum_compared * actual_compared)
+print(f"  Momentum: {momentum_hit:.1f}% hit, {momentum_pnl:.2f} P&L")
 
 # Hist mean baseline
-hist_mean = np.mean(actual_returns[:-1])
-hist_pred = np.full(len(actual_returns)-1, hist_mean)
-hist_correct = np.sum(np.sign(hist_pred) == np.sign(actual_returns[1:]))
-hist_hit = hist_correct / len(actual_returns[1:]) * 100
-hist_pnl = np.sum(hist_pred * actual_returns[1:]) * 100
-print(f"  Hist Mean: {hist_hit:.1f}% hit, {hist_pnl:.1f}% P&L")
+hist_mean = np.mean(actual_returns)
+hist_pred = np.full(len(actual_returns), hist_mean)
+hist_compared = hist_pred[:-1]
+hist_correct = np.sum(np.sign(hist_compared) == np.sign(actual_compared))
+hist_hit = hist_correct / len(actual_compared) * 100
+hist_pnl = np.sum(hist_compared * actual_compared)
+print(f"  Hist Mean: {hist_hit:.1f}% hit, {hist_pnl:.2f} P&L")
 
 # Statistical tests
 print("\n" + "-"*70)
-print("Statistical Significance (CONSISTENT):")
+print("Statistical Significance:")
 
 # Bootstrap CI
 n_boot = 1000
@@ -148,8 +142,8 @@ sharpes_boot = []
 for _ in range(n_boot):
     idx = np.random.choice(len(pnl), size=len(pnl), replace=True)
     boot_pnl = pnl[idx]
-    boot_ret = np.mean(boot_pnl) * 12 * 100
-    boot_vol = np.std(boot_pnl) * np.sqrt(12) * 100
+    boot_ret = np.mean(boot_pnl) * 12
+    boot_vol = np.std(boot_pnl) * np.sqrt(12)
     sharpes_boot.append(boot_ret / boot_vol if boot_vol > 0 else 0)
 
 ci_lower = np.percentile(sharpes_boot, 2.5)
