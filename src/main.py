@@ -45,7 +45,7 @@ def setup_environment(args: argparse.Namespace) -> dict:
         Dictionary with environment settings
     """
     env = {
-        'use_sample_data': args.use_sample_data or not DataConfig.FRED_API_KEY,
+        'use_sample_data': args.sample_data,
         'output_dir': Path(args.output_dir) if args.output_dir else BACKTEST_DIR,
         'save_results': not args.no_save,
         'verbose': args.verbose
@@ -478,9 +478,9 @@ def main(args=None):
         description="S&P 500 Macroeconomic Forecasting with SSRF Model"
     )
 
-    # Data options
-    parser.add_argument('--use-sample-data', action='store_true',
-                        help='Use sample data instead of FRED')
+    # Data options (default: use real FRED data, confirm to use sample data)
+    parser.add_argument('--sample-data', action='store_true',
+                        help='Use sample data instead of FRED (requires confirmation)')
     parser.add_argument('--n-periods', type=int, default=400,
                         help='Number of periods for sample data')
     parser.add_argument('--n-indicators', type=int, default=50,
@@ -555,6 +555,19 @@ def main(args=None):
                         help='Print detailed progress')
 
     parsed_args = parser.parse_args(args)
+
+    # Confirm sample data usage (require explicit confirmation)
+    if parsed_args.sample_data:
+        print("\n" + "=" * 60)
+        print("WARNING: Using sample data instead of real FRED market data")
+        print("=" * 60)
+        print("\nSample data is synthetic and may not reflect real market behavior.")
+        print("Real FRED data will be used by default.")
+        response = input("\nAre you sure you want to use sample data? (yes/no): ")
+        if response.lower() not in ['yes', 'y']:
+            print("\nFalling back to real FRED market data...")
+            parsed_args.sample_data = False
+        print("=" * 60 + "\n")
 
     # Suppress warnings
     warnings.filterwarnings('ignore')
