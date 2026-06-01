@@ -130,7 +130,7 @@ for i in range(start_idx, len(X_arr) - 1, step_size):
         X_train_scaled = scaler.fit_transform(X_train)
         X_test_scaled = scaler.transform(X_test)
 
-        model = ElasticNet(alpha=0.05, l1_ratio=0.5, max_iter=10000)
+        model = ElasticNet(alpha=0.001, l1_ratio=0.5, max_iter=10000)
         model.fit(X_train_scaled, y_train_scaled)
 
         pred = model.predict(X_test_scaled)[0]

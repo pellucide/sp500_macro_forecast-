@@ -118,7 +118,7 @@ for i in range(start_idx, len(y_arr) - 1, step_size):
     X_test_s = scaler.transform(X_test)
 
     # SSRF Model
-    model = ElasticNet(alpha=0.05, l1_ratio=0.5, max_iter=10000)
+    model = ElasticNet(alpha=0.001, l1_ratio=0.5, max_iter=10000)
     model.fit(X_train_s, y_train)
     model_pred = model.predict(X_test_s)[0] * PREDICTION_SCALE  # APPLY SCALE
 
@@ -283,7 +283,7 @@ print(f"Testing: {len(y_test)} periods ({test_dates_sub[0].strftime('%Y-%m')} to
 scaler = StandardScaler()
 X_train_s = scaler.fit_transform(X_train)
 X_test_s = scaler.transform(X_test)
-model = ElasticNet(alpha=0.05, l1_ratio=0.5, max_iter=10000)
+model = ElasticNet(alpha=0.001, l1_ratio=0.5, max_iter=10000)
 model.fit(X_train_s, y_train)  # FIXED: y_train aligns with X_train
 ssrf_preds = model.predict(X_test_s) * PREDICTION_SCALE  # APPLY SCALE
 

@@ -62,7 +62,7 @@ for i in range(train_window, len(X_arr)):
         X_test_scaled = scaler.transform(X_test)
 
         # SSRF (ElasticNet) - NO scaling
-        ssrf = ElasticNet(alpha=0.05, l1_ratio=0.5, max_iter=10000)
+        ssrf = ElasticNet(alpha=0.001, l1_ratio=0.5, max_iter=10000)
         ssrf.fit(X_train_scaled, y_train)
         ssrf_preds.append(ssrf.predict(X_test_scaled)[0])
 
