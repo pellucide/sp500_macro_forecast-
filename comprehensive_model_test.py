@@ -7,6 +7,10 @@ import subprocess
 import re
 import pandas as pd
 from datetime import datetime
+import os
+
+# Dynamic path resolution
+PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 
 def run_model(model_type, alpha=None, l1_ratio=None, prediction_scale=10.0, n_factors=10, t_stat=1.5):
     """Run model via CLI and extract metrics."""
@@ -32,7 +36,7 @@ def run_model(model_type, alpha=None, l1_ratio=None, prediction_scale=10.0, n_fa
     try:
         result = subprocess.run(
             cmd,
-            cwd='/workspace/sp500_macro_forecast',
+            cwd=PROJECT_ROOT,
             capture_output=True,
             text=True,
             timeout=120
@@ -209,7 +213,7 @@ def main():
               f"{row['cumulative_return']:7.1%} {row['max_drawdown']:7.1%}")
 
     # Save results
-    output_path = '/workspace/sp500_macro_forecast/model_comparison_results.csv'
+    output_path = os.path.join(PROJECT_ROOT, 'model_comparison_results.csv')
     df.to_csv(output_path, index=False)
     print(f"\n\nResults saved to: {output_path}")
     print(f"\nCompleted: {datetime.now()}")

@@ -8,8 +8,10 @@ import os
 import time
 import logging
 
-os.chdir('/workspace/sp500_macro_forecast')
-sys.path.insert(0, '/workspace/sp500_macro_forecast')
+# Dynamic path resolution - works from any directory
+PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+os.chdir(PROJECT_ROOT)
+sys.path.insert(0, PROJECT_ROOT)
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
