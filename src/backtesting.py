@@ -456,7 +456,8 @@ def compare_models(
     models: Dict[str, Tuple[type, SSRFConfig]],
     X: pd.DataFrame,
     y: pd.Series,
-    groups: Dict[str, List[str]]
+    groups: Dict[str, List[str]],
+    verbose: bool = True
 ) -> pd.DataFrame:
     """
     Compare multiple model configurations.
@@ -466,6 +467,7 @@ def compare_models(
         X: Feature DataFrame
         y: Target series
         groups: Feature groups
+        verbose: Print progress
 
     Returns:
         DataFrame comparing model performance
