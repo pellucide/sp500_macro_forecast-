@@ -557,17 +557,23 @@ def main(args=None):
     parsed_args = parser.parse_args(args)
 
     # Confirm sample data usage (require explicit confirmation)
+    # Skip confirmation when running non-interactively (subprocess, tests, etc.)
     if parsed_args.sample_data:
-        print("\n" + "=" * 60)
-        print("WARNING: Using sample data instead of real FRED market data")
-        print("=" * 60)
-        print("\nSample data is synthetic and may not reflect real market behavior.")
-        print("Real FRED data will be used by default.")
-        response = input("\nAre you sure you want to use sample data? (yes/no): ")
-        if response.lower() not in ['yes', 'y']:
-            print("\nFalling back to real FRED market data...")
-            parsed_args.sample_data = False
-        print("=" * 60 + "\n")
+        import sys
+        if sys.stdin.isatty():
+            print("\n" + "=" * 60)
+            print("WARNING: Using sample data instead of real FRED market data")
+            print("=" * 60)
+            print("\nSample data is synthetic and may not reflect real market behavior.")
+            print("Real FRED data will be used by default.")
+            response = input("\nAre you sure you want to use sample data? (yes/no): ")
+            if response.lower() not in ['yes', 'y']:
+                print("\nFalling back to real FRED market data...")
+                parsed_args.sample_data = False
+            print("=" * 60 + "\n")
+        else:
+            # Non-interactive mode: use sample data directly without prompting
+            pass
 
     # Suppress warnings
     warnings.filterwarnings('ignore')

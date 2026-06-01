@@ -17,7 +17,7 @@ def run_model(model_type, alpha=None, l1_ratio=None, prediction_scale=10.0, n_fa
 
     cmd = [
         'python', '-m', 'src.main',
-        '--use-sample-data',
+        '--sample-data',
         '--n-periods', '200',
         '--model-type', model_type,
         '--prediction-scale', str(prediction_scale),
