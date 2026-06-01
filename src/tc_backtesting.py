@@ -116,6 +116,14 @@ class TCAdjustedWalkForwardBacktester:
         Returns:
             TCAdjustedResult with full TC metrics
         """
+        # FIXED: Handle DataFrame target (e.g., from yfinance with multi-level columns)
+        # Convert DataFrame to Series if needed
+        if isinstance(y, pd.DataFrame):
+            if y.shape[1] == 1:
+                y = y.iloc[:, 0]  # Get first column as Series
+            else:
+                raise ValueError(f"y must be a Series or single-column DataFrame, got shape {y.shape}")
+
         # Create base SSRF config with TC settings
         if model_config is None:
             model_config = SSRFConfig()

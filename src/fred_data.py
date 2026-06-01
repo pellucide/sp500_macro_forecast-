@@ -9,6 +9,8 @@ import pandas as pd
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Tuple
 import logging
+import os
+import hashlib
 
 try:
     import fredapi
@@ -27,6 +29,61 @@ except ImportError:
 from .config import DataConfig, DATA_DIR
 
 logger = logging.getLogger(__name__)
+
+# Cache directory for downloaded data
+CACHE_DIR = os.path.join(DATA_DIR, 'cache')
+os.makedirs(CACHE_DIR, exist_ok=True)
+
+
+def _get_cache_key(*args) -> str:
+    """Generate a cache key from arguments."""
+    key_str = '_'.join(str(arg) for arg in args)
+    return hashlib.md5(key_str.encode()).hexdigest()
+
+
+def _get_cache_path(prefix: str, cache_key: str) -> str:
+    """Get the full cache file path."""
+    return os.path.join(CACHE_DIR, f"{prefix}_{cache_key}.csv")
+
+
+def load_from_cache(prefix: str, cache_key: str) -> Optional[pd.DataFrame]:
+    """Load data from cache if it exists."""
+    cache_path = _get_cache_path(prefix, cache_key)
+    if os.path.exists(cache_path):
+        try:
+            df = pd.read_csv(cache_path, index_col=0, parse_dates=True)
+            logger.info(f"Loaded data from cache: {cache_path}")
+            return df
+        except Exception as e:
+            logger.warning(f"Failed to load cache {cache_path}: {e}")
+    return None
+
+
+def save_to_cache(df: pd.DataFrame, prefix: str, cache_key: str) -> None:
+    """Save data to cache."""
+    cache_path = _get_cache_path(prefix, cache_key)
+    try:
+        df.to_csv(cache_path)
+        logger.info(f"Saved data to cache: {cache_path}")
+    except Exception as e:
+        logger.warning(f"Failed to save cache {cache_path}: {e}")
+
+
+def clear_cache(prefix: Optional[str] = None) -> None:
+    """Clear cached data files."""
+    if prefix:
+        # Clear specific prefix
+        pattern = os.path.join(CACHE_DIR, f"{prefix}_*.csv")
+        import glob
+        for f in glob.glob(pattern):
+            os.remove(f)
+            logger.info(f"Removed cache: {f}")
+    else:
+        # Clear all cache
+        for f in os.listdir(CACHE_DIR):
+            if f.endswith('.csv'):
+                os.remove(os.path.join(CACHE_DIR, f))
+        logger.info("Cleared all cache files")
 
 
 class FREDDataLoader:
@@ -122,7 +179,8 @@ class FREDDataLoader:
         self,
         start_date: str = "1959-01-01",
         end_date: Optional[str] = None,
-        vintage_date: Optional[str] = None
+        vintage_date: Optional[str] = None,
+        use_cache: bool = True
     ) -> pd.DataFrame:
         """
         Fetch all macroeconomic indicators from FRED-MD categories.
@@ -131,10 +189,18 @@ class FREDDataLoader:
             start_date: Start date for data retrieval
             end_date: End date for data retrieval
             vintage_date: Vintage date for real-time discipline
+            use_cache: Whether to use cached data if available
 
         Returns:
             pd.DataFrame with all indicators as columns
         """
+        # Check cache first
+        if use_cache:
+            cache_key = _get_cache_key(start_date, end_date, vintage_date)
+            cached = load_from_cache("fred_indicators", cache_key)
+            if cached is not None:
+                return cached
+
         all_data = []
 
         for indicator in self.all_indicators:
@@ -155,21 +221,39 @@ class FREDDataLoader:
         df.index = pd.to_datetime(df.index)
         df = df.resample('ME').last()  # Convert to end-of-month
 
+        # Save to cache
+        if use_cache:
+            cache_key = _get_cache_key(start_date, end_date, vintage_date)
+            save_to_cache(df, "fred_indicators", cache_key)
+
         return df
 
-    def fetch_spx_returns(self, start_date: str, end_date: Optional[str] = None) -> pd.Series:
+    def fetch_spx_returns(
+        self,
+        start_date: str,
+        end_date: Optional[str] = None,
+        use_cache: bool = True
+    ) -> pd.Series:
         """
         Fetch S&P 500 monthly returns.
 
         Args:
             start_date: Start date
             end_date: End date
+            use_cache: Whether to use cached data if available
 
         Returns:
             pd.Series with monthly returns
         """
         if self.fred is None:
             raise ValueError("FRED API key required")
+
+        # Check cache first
+        if use_cache:
+            cache_key = _get_cache_key(start_date, end_date, "spx")
+            cached = load_from_cache("spx_returns", cache_key)
+            if cached is not None:
+                return cached['SP500_return']
 
         try:
             # S&P 500 price index (daily)
@@ -187,6 +271,11 @@ class FREDDataLoader:
             # Calculate monthly returns
             returns = spx_monthly.pct_change().dropna()
             returns.name = "SP500_return"
+
+            # Save to cache
+            if use_cache:
+                cache_key = _get_cache_key(start_date, end_date, "spx")
+                save_to_cache(returns.to_frame(), "spx_returns", cache_key)
 
             return returns
 
@@ -290,7 +379,8 @@ class FREDDataLoader:
     def fetch_sector_returns_yfinance(
         self,
         start_date: str,
-        end_date: Optional[str] = None
+        end_date: Optional[str] = None,
+        use_cache: bool = True
     ) -> pd.DataFrame:
         """
         Fetch sector ETF returns from Yahoo Finance for sector rotation prediction.
@@ -298,6 +388,7 @@ class FREDDataLoader:
         Args:
             start_date: Start date
             end_date: End date (defaults to today)
+            use_cache: Whether to use cached data if available
 
         Returns:
             DataFrame with relative sector returns (sector - SP500)
@@ -305,6 +396,13 @@ class FREDDataLoader:
         if not YFINANCE_AVAILABLE:
             logger.error("yfinance not installed. Cannot fetch sector data.")
             return pd.DataFrame()
+
+        # Check cache first
+        if use_cache:
+            cache_key = _get_cache_key(start_date, end_date, "sectors")
+            cached = load_from_cache("sector_returns", cache_key)
+            if cached is not None:
+                return cached
 
         import time
 
@@ -388,6 +486,11 @@ class FREDDataLoader:
 
         # Calculate relative returns (sector - SP500)
         relative_returns = sector_returns.sub(spx_returns.values.reshape(-1, 1), axis=0)
+
+        # Save to cache
+        if use_cache:
+            cache_key = _get_cache_key(start_date, end_date, "sectors")
+            save_to_cache(relative_returns, "sector_returns", cache_key)
 
         logger.info(f"Fetched {len(relative_returns.columns)} sector relative returns")
         return relative_returns

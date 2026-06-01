@@ -75,6 +75,13 @@ class VolatilityRegimeDetector:
         Returns:
             self
         """
+        # FIXED: Handle DataFrame target (e.g., from yfinance with multi-level columns)
+        if isinstance(returns, pd.DataFrame):
+            if returns.shape[1] == 1:
+                returns = returns.iloc[:, 0]  # Get first column as Series
+            else:
+                raise ValueError(f"returns must be a Series or single-column DataFrame, got shape {returns.shape}")
+
         # Compute rolling volatility
         vol = returns.rolling(window=12).std()
 
@@ -141,6 +148,13 @@ class TrendRegimeDetector:
         Returns:
             self
         """
+        # FIXED: Handle DataFrame target
+        if isinstance(returns, pd.DataFrame):
+            if returns.shape[1] == 1:
+                returns = returns.iloc[:, 0]
+            else:
+                raise ValueError(f"returns must be a Series or single-column DataFrame, got shape {returns.shape}")
+
         # Compute momentum
         momentum = returns.rolling(window=self.config.trend_window).sum()
 
@@ -197,6 +211,13 @@ class DrawdownRegimeDetector:
         Returns:
             self
         """
+        # FIXED: Handle DataFrame target
+        if isinstance(returns, pd.DataFrame):
+            if returns.shape[1] == 1:
+                returns = returns.iloc[:, 0]
+            else:
+                raise ValueError(f"returns must be a Series or single-column DataFrame, got shape {returns.shape}")
+
         # Compute cumulative returns
         cumulative = (1 + returns).cumprod()
 
@@ -258,6 +279,13 @@ class HiddenMarkovRegimeDetector:
         Returns:
             self
         """
+        # FIXED: Handle DataFrame target
+        if isinstance(returns, pd.DataFrame):
+            if returns.shape[1] == 1:
+                returns = returns.iloc[:, 0]
+            else:
+                raise ValueError(f"returns must be a Series or single-column DataFrame, got shape {returns.shape}")
+
         try:
             from hmmlearn import hmm
 

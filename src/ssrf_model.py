@@ -198,40 +198,76 @@ class GroupwiseScreen:
         Returns:
             Array of t-statistics
         """
+        # FIXED: Handle DataFrame target (e.g., from yfinance with multi-level columns)
+        # Convert DataFrame to Series if needed
+        if isinstance(y, pd.DataFrame):
+            if y.shape[1] == 1:
+                y = y.iloc[:, 0]  # Get first column as Series
+            else:
+                raise ValueError(f"y must be a Series or single-column DataFrame, got shape {y.shape}")
+
         # Align X and y
         valid_idx = ~(X.isna().any(axis=1) | y.isna())
         X_valid = X.loc[valid_idx]
         y_valid = y.loc[valid_idx]
 
-        if len(X_valid) < 10:
+        n = len(y_valid)
+        if n < 10 or len(X_valid.columns) == 0:
             return np.zeros(len(X.columns))
 
-        t_stats = np.zeros(len(X.columns))
+        try:
+            # VECTORIZED: Compute t-statistics using correlation formula
+            # t = r * sqrt((n-2) / (1-r^2)) where r is correlation
+            # This is mathematically equivalent to univariate regression t-stat
+            y_arr = y_valid.values
+            y_mean = y_arr.mean()
+            y_std = y_arr.std()
 
-        for i, col in enumerate(X.columns):
-            try:
-                # Univariate regression
-                reg = LinearRegression()
-                X_col = X_valid[[col]].values
-                reg.fit(X_col, y_valid.values)
+            if y_std == 0:
+                return np.zeros(len(X.columns))
 
-                # Compute t-statistic
-                residuals = y_valid.values - reg.predict(X_col)
-                n = len(residuals)
-                mse = np.sum(residuals ** 2) / (n - 2)
+            X_arr = X_valid.values
+            X_means = X_arr.mean(axis=0)
+            X_stds = X_arr.std(axis=0)
 
-                # Standard error of slope
-                x_mean = X_col.mean()
-                x_var = np.sum((X_col - x_mean) ** 2)
-                se = np.sqrt(mse / x_var)
+            # Avoid division by zero
+            X_stds[X_stds == 0] = 1
 
-                if se > 0:
-                    t_stats[i] = reg.coef_[0] / se
-            except Exception as e:
-                logger.debug(f"Error computing t-stat for {col}: {e}")
-                t_stats[i] = 0
+            # Compute correlation for all features at once
+            # corr(x, y) = E[(x - x_mean)(y - y_mean)] / (sigma_x * sigma_y)
+            X_centered = X_arr - X_means
+            y_centered = y_arr - y_mean
+            correlations = np.dot(X_centered.T, y_centered) / (n * X_stds * y_std)
 
-        return t_stats
+            # Clip to avoid numerical issues
+            correlations = np.clip(correlations, -0.9999, 0.9999)
+
+            # Convert correlation to t-statistic
+            # t = r * sqrt((n-2) / (1-r^2))
+            df = n - 2
+            t_stats = correlations * np.sqrt(df / (1 - correlations**2))
+
+            return t_stats
+
+        except Exception as e:
+            logger.debug(f"Error in vectorized t-stat computation: {e}")
+            # Fallback to slower method
+            t_stats = np.zeros(len(X.columns))
+            for i, col in enumerate(X.columns):
+                try:
+                    X_col = X_valid[[col]].values
+                    reg = LinearRegression()
+                    reg.fit(X_col, y_valid.values)
+                    residuals = y_valid.values - reg.predict(X_col)
+                    mse = np.sum(residuals ** 2) / (n - 2)
+                    x_mean = X_col.mean()
+                    x_var = np.sum((X_col - x_mean) ** 2)
+                    se = np.sqrt(mse / x_var)
+                    if se > 0:
+                        t_stats[i] = reg.coef_[0] / se
+                except Exception:
+                    t_stats[i] = 0
+            return t_stats
 
 
 class PredictiveScaler:
@@ -244,6 +280,9 @@ class PredictiveScaler:
 
     def __init__(self):
         self.slopes = {}
+        # CACHE: Store fitted scaler and scaled data
+        self._scaler_cache = {}
+        self._scaled_cache = {}
 
     def fit_transform(
         self,
@@ -261,6 +300,20 @@ class PredictiveScaler:
         if X.empty or X.shape[1] == 0:
             return X, np.array([])
 
+        # Create cache key - use tuple for hashability
+        cols_tuple = tuple(X.columns.tolist())
+        try:
+            values_hash = hash(X.values.tobytes())
+        except (TypeError, ValueError):
+            values_hash = id(X)
+        cache_key = (X.shape, cols_tuple, values_hash)
+
+        if cache_key in self._scaler_cache:
+            cached_result = self._scaled_cache[cache_key]
+            # Return cached result with current index
+            X_scaled_df, slopes = cached_result
+            return pd.DataFrame(X_scaled_df.values, index=X.index, columns=X.columns), slopes
+
         # Standardize first - store scaler as instance variable
         self.scaler = StandardScaler()
         X_scaled = self.scaler.fit_transform(X)
@@ -275,6 +328,11 @@ class PredictiveScaler:
             index=X.index,
             columns=X.columns
         )
+
+        # CACHE: Store result (use values copy to avoid memory issues)
+        if len(self._scaler_cache) < 50:
+            X_scaled_df_copy = pd.DataFrame(X_scaled_df.values.copy(), index=X_scaled_df.index, columns=X_scaled_df.columns)
+            self._scaled_cache[cache_key] = (X_scaled_df_copy, slopes.copy())
 
         return X_scaled_df, slopes
 
@@ -440,6 +498,8 @@ class RegimeProxy:
         """
         self.regime_window = regime_window
         self.training_percentiles = None
+        # CACHE: Store computed rolling volatility to avoid recomputation
+        self._rolling_vol_cache = {}
 
     def compute_rolling_volatility(
         self,
@@ -457,7 +517,37 @@ class RegimeProxy:
             Rolling volatility series
         """
         window = window or self.regime_window
-        return returns.rolling(window=window).std()
+
+        # CACHE: Create cache key based on series values hash, not identity
+        # Using values.tobytes() for more stable caching
+        try:
+            values_hash = hash(returns.values.tobytes())
+        except (TypeError, ValueError):
+            # Fallback if values can't be hashed (e.g., object dtype)
+            values_hash = id(returns)
+        cache_key = (values_hash, len(returns), window)
+
+        if cache_key in self._rolling_vol_cache:
+            cached_result = self._rolling_vol_cache[cache_key]
+            # Return cached result with current index
+            return pd.Series(cached_result.values, index=returns.index)
+
+        result = returns.rolling(window=window).std()
+
+        # CACHE: Store result (limit cache size to avoid memory issues)
+        if len(self._rolling_vol_cache) < 100:
+            self._rolling_vol_cache[cache_key] = result.copy()
+        else:
+            # Clear oldest entries if cache is full
+            self._rolling_vol_cache.clear()
+            self._rolling_vol_cache[cache_key] = result.copy()
+
+        return result
+
+    def clear_cache(self):
+        """Clear all cached computations."""
+        self._rolling_vol_cache.clear()
+        self.training_percentiles = None
 
     def compute_percentile_rank(
         self,
@@ -474,6 +564,14 @@ class RegimeProxy:
         Returns:
             Percentile ranks (0-1)
         """
+        # Handle DataFrame inputs
+        if isinstance(values, pd.DataFrame):
+            if values.shape[1] == 1:
+                values = values.iloc[:, 0]
+        if isinstance(reference, pd.DataFrame):
+            if reference.shape[1] == 1:
+                reference = reference.iloc[:, 0]
+
         if reference is None:
             reference = values
 
@@ -481,27 +579,29 @@ class RegimeProxy:
         if self.training_percentiles is None:
             self.training_percentiles = reference.dropna().values
 
-        # Vectorized percentile rank computation
-        # Use expanding window for historical percentile
-        result = pd.Series(index=values.index, dtype=float)
+        # VECTORIZED: Fast percentile rank computation
+        # Percentile = (number of values in ref less than current) / total
+        values_arr = values.values
+        ref_arr = self.training_percentiles
 
-        for i in range(len(values)):
-            current_value = values.iloc[i]
-            current_date = values.index[i]
+        if len(ref_arr) == 0:
+            return pd.Series(0.5, index=values.index)
 
-            # Get reference data up to current date
-            if current_date in reference.index:
-                ref_data = reference.loc[:current_date].dropna()
-            else:
-                ref_data = self.training_percentiles
-
-            if len(ref_data) > 0:
-                # Percentile rank: percentage of values below current
-                result.iloc[i] = (ref_data < current_value).mean()
-            else:
-                result.iloc[i] = 0.5  # Default to median
-
-        return result
+        try:
+            # For each value, count how many ref values are below it
+            # Broadcasting: (n_values, 1) vs (1, n_ref) -> (n_values, n_ref)
+            # This is O(n*m) but vectorized in numpy - much faster than Python loop
+            counts_below = np.sum(values_arr[:, np.newaxis] > ref_arr, axis=1)
+            percentiles = counts_below / len(ref_arr)
+            return pd.Series(percentiles, index=values.index, dtype=float)
+        except Exception as e:
+            logger.debug(f"Error in vectorized percentile rank: {e}")
+            # Fallback to scipy.stats.rankdata
+            from scipy import stats
+            combined = np.concatenate([values_arr, ref_arr])
+            ranks = stats.rankdata(combined, method='average')
+            percentiles = ranks[:len(values_arr)] / (len(combined) + 1)
+            return pd.Series(percentiles, index=values.index, dtype=float)
 
     def create_interaction_terms(
         self,
@@ -757,6 +857,14 @@ class SSRFModel:
         """
         logger.info("Fitting SSRF model...")
 
+        # FIXED: Handle DataFrame target (e.g., from yfinance with multi-level columns)
+        # Convert DataFrame to Series if needed
+        if isinstance(y, pd.DataFrame):
+            if y.shape[1] == 1:
+                y = y.iloc[:, 0]  # Get first column as Series
+            else:
+                raise ValueError(f"y must be a Series or single-column DataFrame, got shape {y.shape}")
+
         # Store original data for regime proxy calculation
         self._X_train = X.copy()
         self._y_train = y.copy()
@@ -902,6 +1010,11 @@ class SSRFModel:
         """
         if self.state is None:
             raise ValueError("Model must be fitted before prediction")
+
+        # FIXED: Handle DataFrame target for y_for_regime
+        if y_for_regime is not None and isinstance(y_for_regime, pd.DataFrame):
+            if y_for_regime.shape[1] == 1:
+                y_for_regime = y_for_regime.iloc[:, 0]  # Get first column as Series
 
         # Stage 1: Filter to only the features that were selected during training
         all_selected = []
