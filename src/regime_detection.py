@@ -289,9 +289,10 @@ class HiddenMarkovRegimeDetector:
         try:
             from hmmlearn import hmm
 
-            # Prepare data
-            X = returns.values.reshape(-1, 1)
-            X = X[~np.isnan(X)]
+            # Prepare data - need 2D array (n_samples, n_features)
+            X_raw = returns.values
+            valid_mask = ~np.isnan(X_raw)
+            X = X_raw[valid_mask].reshape(-1, 1)  # Keep 2D shape for hmmlearn
 
             if len(X) < 50:
                 logger.warning("Insufficient data for HMM training. Using fallback.")
@@ -306,6 +307,9 @@ class HiddenMarkovRegimeDetector:
             )
 
             self.model.fit(X)
+
+            # Store X for use in _analyze_states
+            self._X_train = X
 
             # Analyze fitted states
             self.trained_states = self._analyze_states(returns)
@@ -326,15 +330,20 @@ class HiddenMarkovRegimeDetector:
         if self.model is None:
             return {}
 
-        X = returns.values.reshape(-1, 1)
-        X = X[~np.isnan(X)]
+        # Use stored X from fit() if available, otherwise create it
+        if hasattr(self, '_X_train') and self._X_train is not None:
+            X = self._X_train
+        else:
+            X_raw = returns.values
+            valid_mask = ~np.isnan(X_raw)
+            X = X_raw[valid_mask].reshape(-1, 1)
 
         states = self.model.predict(X)
 
         state_stats = {}
         for state in range(self.config.n_regimes):
             mask = states == state
-            state_returns = returns.values[~np.isnan(returns.values)][mask]
+            state_returns = X[mask, 0]  # Get column 0 of 2D array
 
             state_stats[state] = {
                 'mean': np.mean(state_returns),
@@ -372,13 +381,14 @@ class HiddenMarkovRegimeDetector:
             return self._fallback_detection(returns)
 
         try:
-            X = returns.values.reshape(-1, 1)
-            X = X[~np.isnan(X)]
+            X_raw = returns.values
+            valid_mask = ~np.isnan(X_raw)
+            X = X_raw[valid_mask].reshape(-1, 1)
 
             states = self.model.predict(X)
 
             regimes = pd.Series(index=returns.index, dtype=object)
-            valid_idx = returns.index[~np.isnan(returns.values)]
+            valid_idx = returns.index[valid_mask]
 
             for i, (idx, state) in enumerate(zip(valid_idx, states)):
                 if state in self.trained_states:
