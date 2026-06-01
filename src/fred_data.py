@@ -517,6 +517,9 @@ class DataProcessor:
         Align indicators with target variable using appropriate lag structure.
         Uses point-in-time discipline: predict r_{t+1} using data available at t.
 
+        FIXED: Now properly implements 1-month-ahead forecasting by shifting
+        the target forward. X[t] predicts y[t+1], not y[t].
+
         Args:
             indicators: DataFrame of macroeconomic indicators
             target: Target variable (S&P 500 returns)
@@ -535,9 +538,22 @@ class DataProcessor:
         # Forward fill missing indicator values
         combined = combined.ffill().bfill()
 
+        # FIXED: Shift target forward by 1 for proper 1-month-ahead forecasting
+        # This ensures X[t] predicts the return for month t+1, not month t
+        # After shifting: target[t] = original_return[t+1]
+        # Result: indicators and target are now aligned for forecasting
+        combined['target'] = combined['target'].shift(-1)
+
+        # Remove the last row (which now has NaN target due to forward shift)
+        combined = combined.dropna(subset=['target'])
+
         # Split back into indicators and target
         aligned_indicators = combined.drop(columns=['target'])
         aligned_target = combined['target']
+
+        # Verify alignment
+        assert len(aligned_indicators) == len(aligned_target), \
+            "Indicators and target must have same length after alignment"
 
         return aligned_indicators, aligned_target
 
