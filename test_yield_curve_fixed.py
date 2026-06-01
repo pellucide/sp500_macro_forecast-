@@ -104,8 +104,9 @@ actual_returns = []
 
 # FIXED: Proper walk-forward - Train on X[0:t] to predict y[t]
 for i in range(start_idx, len(X_arr) - 1, step_size):
-    # Training: X[0:i+1], y[1:i+1] (use X at t to predict y at t+1)
-    X_train = X_arr[:i+1]
+    # Training: X[0:i], y[1:i+1] (use X at t to predict y at t+1)
+    # X[0:i] has i rows (indices 0 to i-1), y[1:i+1] has i rows (indices 1 to i)
+    X_train = X_arr[:i]
     y_train = y_arr[1:i+1]
 
     # Test: X[i+1] to predict y[i+1]
