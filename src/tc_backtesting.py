@@ -304,8 +304,16 @@ class TCAdjustedWalkForwardBacktester:
     ) -> pd.Series:
         """
         Calculate gross returns (before TC).
+        Uses same long/short logic as _simulate_portfolio() for consistency.
         """
-        positions = np.sign(predictions.values).clip(0, 1)  # Long only
+        # Use same position calculation as backtesting._simulate_portfolio()
+        positions = np.sign(predictions.values)
+        max_signal = np.abs(predictions.values).max()
+        if max_signal > 0:
+            positions = positions * (np.abs(predictions.values) / max_signal)
+        else:
+            positions = np.zeros(len(predictions))
+
         gross_returns = pd.Series(
             positions * actual_returns.values,
             index=predictions.index
