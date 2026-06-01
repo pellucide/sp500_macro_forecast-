@@ -261,9 +261,9 @@ class PredictiveScaler:
         if X.empty or X.shape[1] == 0:
             return X, np.array([])
 
-        # Standardize first
-        scaler = StandardScaler()
-        X_scaled = scaler.fit_transform(X)
+        # Standardize first - store scaler as instance variable
+        self.scaler = StandardScaler()
+        X_scaled = self.scaler.fit_transform(X)
 
         # Compute and apply predictive slopes
         slopes = np.std(X.values, axis=0)
@@ -291,16 +291,15 @@ class PredictiveScaler:
         if X.empty or len(self.slopes) == 0:
             return X
 
-        # Standardize
-        X_scaled = self.scaler.transform(X)
-
-        # Apply scaling
-        # We need to access the scaler - but it was created in fit_transform
-        # Store it as instance variable
-        if not hasattr(self, 'scaler') or self.scaler is None:
+        # Standardize using the fitted scaler from fit_transform
+        if hasattr(self, 'scaler') and self.scaler is not None:
+            X_scaled = self.scaler.transform(X)
+        else:
+            # Fallback: fit a new scaler (should not happen if used correctly)
             self.scaler = StandardScaler()
-            self.scaler.fit(X)
+            X_scaled = self.scaler.fit_transform(X)
 
+        # Apply scaling using stored slopes
         return pd.DataFrame(X_scaled, index=X.index, columns=X.columns)
 
 
@@ -915,8 +914,8 @@ class SSRFModel:
         # If some features are missing, that's okay - we still use what we have
         # The PCA will handle the dimension mismatch
 
-        # Stage 2: Scaling
-        X_scaled, _ = self.scaler.fit_transform(X_filtered)
+        # Stage 2: Scaling (use transform, not fit_transform - scaler was fitted during training)
+        X_scaled = self.scaler.transform(X_filtered)
 
         # Stage 3: Factor extraction
         factors = self.factor_extractor.transform(X_scaled)
