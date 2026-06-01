@@ -507,8 +507,8 @@ def main(args=None):
                         help='Elastic Net alpha')
     parser.add_argument('--l1-ratio', type=float, default=0.5,
                         help='Elastic Net L1 ratio')
-    parser.add_argument('--prediction-scale', type=float, default=1.0,
-                        help='Scale factor for predictions (default: 1.0, recommended: 5-20)')
+    parser.add_argument('--prediction-scale', type=float, default=10.0,
+                        help='Scale factor for predictions (default: 10.0)')
     parser.add_argument('--no-cv', action='store_true',
                         help='Disable cross-validation for regularization')
     parser.add_argument('--unregularized', action='store_true',

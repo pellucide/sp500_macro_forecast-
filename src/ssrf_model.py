@@ -85,9 +85,9 @@ class SSRFConfig:
     # Prediction scaling
     # SSRF predictions are often very small due to heavy regularization.
     # This parameter scales up predictions to capture more return.
-    # Default: 1.0 (no scaling)
-    # Recommended range: 5.0 - 20.0 for most applications
-    prediction_scale: float = 1.0  # Multiply predictions by this factor
+    # Default: 10.0 (10x scaling to amplify directional signals)
+    # Lower values (1.0-5.0) for conservative, higher for aggressive strategies
+    prediction_scale: float = 10.0  # Multiply predictions by this factor
 
 
 @dataclass
