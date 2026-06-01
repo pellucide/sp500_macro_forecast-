@@ -6,7 +6,34 @@ SSRF (State-Dependent Supervised Screening & Regularized Factor) model for S&P 5
 
 ---
 
+## CRITICAL CORRECTION (2026-06-01)
+
+**⚠️ WARNING: Previous results were misleading due to data leakage/naive baseline comparison**
+
+The "95% accuracy" and "beats S&P 500" claims were FALSE because:
+
+1. **Target variable (yield curve spread) is 96% autocorrelated**
+   - Spread at time t highly predicts spread at time t+1
+   - A naive "predict last month's value" baseline achieves 94.7% accuracy
+
+2. **SSRF adds only +0.8% improvement over naive baseline**
+   - SSRF Direction Accuracy: 95.55%
+   - Naive Baseline Accuracy: 94.74%
+   - **Net improvement: negligible**
+
+3. **The R² and Sharpe metrics were artifacts of autocorrelation, not genuine alpha**
+
+---
+
 ## Commit History and Performance Results
+
+---
+
+### [d726df2] - Add PERFORMANCE_LOG.md - comprehensive SSRF performance documentation
+
+**Date:** 2026-06-01
+
+**NOTE:** This commit contains INCORRECT performance claims. See correction below.
 
 ---
 
@@ -14,29 +41,46 @@ SSRF (State-Dependent Supervised Screening & Regularized Factor) model for S&P 5
 
 **Date:** 2026-06-01
 
-**Key Results (Walk-Forward OOS Test, 1980-2026):**
+**CORRECTED Results (Walk-Forward OOS Test, 1980-2026):**
 
-| Model Type | Alpha | Hit Ratio | Sharpe Ratio | R² OOS |
-|------------|-------|-----------|--------------|--------|
-| ElasticNet | 0.05  | 95.3%     | 3.439        | 0.866  |
-| ElasticNet | 0.01  | 95.3%     | 3.408        | 0.863  |
-| ElasticNet | 0.001 | 95.3%     | 3.371        | 0.858  |
-| ElasticNet | 0.10  | 95.3%     | 3.416        | 0.863  |
-| ElasticNet | 0.50  | 94.0%     | 3.222        | 0.849  |
-| Linear     | -     | 94.0%     | 3.222        | 0.849  |
-| Ridge      | 0.1   | 94.0%     | 3.222        | 0.849  |
-| Lasso      | 0.01  | 93.3%     | 2.983        | 0.834  |
+| Model Type | Alpha | Hit Ratio | vs Naive Baseline |
+|------------|-------|-----------|-------------------|
+| ElasticNet | 0.05  | 95.55%    | +0.81% |
+| ElasticNet | 0.01  | 95.3%     | +0.56% |
+| ElasticNet | 0.001 | 95.3%     | +0.56% |
+| ElasticNet | 0.10  | 95.3%     | +0.56% |
+| ElasticNet | 0.50  | 94.0%     | -0.74% |
+| Linear     | -     | 94.0%     | -0.74% |
 
-**Best Model:** ElasticNet with α=0.05
-- Hit Ratio: 95.3%
-- Sharpe: 3.439
-- R² OOS: 0.866
+**Naive Baseline (Lag-1 predictor):** 94.74% direction accuracy
 
-**Notes:**
-- 557 periods of real FRED data (1980-2026)
-- 57 macroeconomic indicators
-- Higher regularization (α=0.05) performs best on real data
-- Direction accuracy >95% consistently across all model types
+**Key Insight:**
+- The yield curve spread (GS10 - TB3MS) is 96% autocorrelated
+- A simple "predict same as last month" achieves 94.7% accuracy
+- SSRF adds only ~0.8% improvement - marginal value at best
+
+---
+
+### [CORRECTED] - Naive Baseline Comparison
+
+**Date:** 2026-06-01
+
+| Metric | SSRF Model | Naive Baseline (Lag-1) | Conclusion |
+|--------|------------|------------------------|------------|
+| Direction Accuracy | 95.55% | 94.74% | SSRF +0.8% |
+| R² OOS | 0.9487 | 0.9045 | SSRF +0.044 |
+| Correlation | 0.9746 | 0.9525 | SSRF +0.02 |
+
+**Spread Autocorrelation:**
+- Lag 1: 0.9606
+- Lag 3: 0.8470
+- Lag 6: 0.7337
+- Lag 12: 0.5098
+
+**The problem:**
+- Yield curve spread is EXTREMELY persistent
+- Model is learning autocorrelation, not macroeconomic signals
+- Naive baseline is nearly as good as the complex model
 
 ---
 
@@ -48,16 +92,6 @@ SSRF (State-Dependent Supervised Screening & Regularized Factor) model for S&P 5
 - Modified CLI default from sample data to real FRED data
 - Added confirmation prompt for sample data usage
 - Changed `--use-sample-data` to `--sample-data` flag
-
-**CLI Changes:**
-```bash
-# Default now uses real FRED data
-python -m src.main
-
-# Must explicitly confirm to use sample data
-python -m src.main --sample-data
-# Will prompt: "Are you sure you want to use sample data? (yes/no): "
-```
 
 ---
 
@@ -72,47 +106,15 @@ python -m src.main --sample-data
 - Features: 57 macroeconomic indicators
 - Categories: Output & Income, Labor, Housing, Consumption, Inflation, Interest Rates, Money Supply
 
-**Validation Results:**
-- All models perform well on real data (91-95% hit ratio)
-- Sample data showed severe overfitting with Linear (9.35% hit)
-- Real data is much more reliable for model evaluation
-
----
-
-### [271d855] - Comprehensive model comparison test results
-
-**Date:** 2026-06-01
-
-**Models Tested:**
-1. ElasticNet (multiple α values: 0.001, 0.01, 0.05, 0.10, 0.50)
-2. Linear (OLS)
-3. Ridge
-4. Lasso
-
-**Key Findings:**
-- ElasticNet consistently outperforms other models
-- Linear regression overfits on sample data
-- Regularization is essential for financial prediction
-- α=0.05 provides best balance of bias-variance
-
 ---
 
 ### [19e442c] [2abcca5] - Add --prediction-scale CLI argument for SSRF
 
 **Date:** 2026-06-01
 
-**Purpose:**
-- Allow users to scale predictions for better signal utilization
-- Default scale=1.0 (no scaling)
-- Recommended range: 5-20 for specific use cases
-
 **Implementation:**
-- `SSRFConfig.prediction_scale` parameter (line 90 of ssrf_model.py)
-- Applied in `predict()` method (lines 992-995)
-
-**Test Results on Real Data:**
-- Scale=1.0: Optimal (predictions already well-calibrated)
-- Scale > 1.0: No improvement on real FRED data
+- `SSRFConfig.prediction_scale` parameter
+- Applied in `predict()` method
 
 ---
 
@@ -124,50 +126,12 @@ python -m src.main --sample-data
 - M1 Money Supply
 - M2 Money Supply
 - M3 Money Supply
-- Monetary base indicators
-
-**Key Discovery:**
-- `prediction_scale` parameter defined in config but NOT implemented
-- Implemented scaling in predict() method
-
----
-
-### [04d6585] - Add CLI usage documentation
-
-**Date:** 2026-06-01
-
-**Documentation:**
-- Full CLI argument reference
-- Data options (--sample-data, --n-periods, --n-indicators)
-- Model options (--alpha, --l1-ratio, --n-factors, --t-stat-threshold)
-- Transaction cost options (--tc-rate, --account-tier, --tc-backtest)
-- Conviction filtering (--conviction-filter, --conviction-threshold)
 
 ---
 
 ### [d0a2bf7] - Initial commit: SSRF S&P 500 Macro Forecasting Project
 
 **Date:** 2026-06-01
-
-**Project Structure:**
-```
-sp500_macro_forecast/
-├── src/
-│   ├── __init__.py
-│   ├── main.py              # CLI entry point
-│   ├── config.py             # Configuration
-│   ├── ssrf_model.py         # SSRF model implementation
-│   ├── fred_data.py         # FRED data loader
-│   ├── regime_detection.py  # Market regime detection
-│   ├── backtesting.py       # Walk-forward backtester
-│   ├── tc_backtesting.py    # TC-adjusted backtester
-│   └── evaluation.py        # Metrics calculation
-├── data/
-│   └── fred_cache/          # Cached FRED data
-├── backtest_results/        # Output directory
-├── README.md
-└── requirements.txt
-```
 
 **SSRF Architecture:**
 1. Group-wise supervised screening (t-stat filtering)
@@ -177,32 +141,7 @@ sp500_macro_forecast/
 
 ---
 
-## Performance Summary
-
-### Overall Project Performance (1980-2026, Walk-Forward OOS)
-
-| Metric | Value |
-|--------|-------|
-| Direction Accuracy | 95.55% |
-| Total Strategy Return | +197,105% |
-| Benchmark Return | +78,372% |
-| Outperformance | +118,733% |
-| Sharpe Ratio (Strategy) | 3.53 |
-| Sharpe Ratio (Benchmark) | 4.50 |
-| Max Drawdown (Strategy) | -58.5% |
-| Max Drawdown (Benchmark) | -2344% |
-| Calmar Ratio (Strategy) | 81.7 |
-| Campbell-Thompson R² OOS | 0.9487 |
-
-### Key Success Factors:
-1. **95%+ direction accuracy** - model correctly predicts regime changes
-2. **40x better drawdown control** - max DD of -58.5% vs -2344%
-3. **2.5x total return** - $197K per $10K vs $78K for buy-and-hold
-4. **R² OOS = 0.95** - exceptional out-of-sample predictive power
-
----
-
-## Model Configuration (Best Settings)
+## Model Configuration
 
 ```python
 SSRFConfig(
@@ -213,7 +152,7 @@ SSRFConfig(
     elastic_net_l1_ratio=0.5,
     use_elastic_net_cv=True,
     model_type='elasticnet',
-    prediction_scale=1.0,  # No scaling needed for real data
+    prediction_scale=1.0,
 )
 ```
 
@@ -224,30 +163,60 @@ SSRFConfig(
 
 ---
 
-## Files Modified Per Commit
+## What Went Wrong
 
-| Commit | Files Modified |
-|--------|----------------|
-| b8a4ca2 | oos_all_models.py, PERFOMANCE_LOG.md |
-| ba87afc | src/main.py |
-| f4c19ba | - (validation results) |
-| 271d855 | oos_all_models.py |
-| 19e442c | src/ssrf_model.py |
-| 2abcca5 | src/ssrf_model.py, src/main.py |
-| 6ac1997 | src/fred_data.py |
-| 04d6585 | README.md |
-| d0a2bf7 | Initial project structure |
+### The Original Error:
+
+1. **Incorrect target variable:** Predicting yield curve spread direction
+2. **No proper baseline:** Did not compare against naive/lagged predictor
+3. **Misleading metrics:** Sharpe/R² artifacts of autocorrelation, not alpha
+
+### The Yield Curve Spread Problem:
+
+The yield curve spread (10Y Treasury - 3M Treasury) is:
+- **96% autocorrelated** at 1-month lag
+- **85% autocorrelated** at 3-month lag
+- **73% autocorrelated** at 6-month lag
+
+This means:
+- If spread is positive today, it's almost certainly positive next month
+- A naive "predict same as last month" achieves 94.7% accuracy
+- Any model will appear to have high accuracy by just learning this persistence
+
+### Proper Evaluation Requires:
+
+1. **Predicting something less persistent** (actual S&P 500 returns)
+2. **Comparing against proper baselines** (naive, historical mean)
+3. **Out-of-sample + out-of-time validation**
 
 ---
 
-## Future Enhancements
+## Corrected Conclusion
 
-1. **Sector Rotation**: Add sector-specific models (Technology, Energy, Financials)
-2. **Ensemble Methods**: Combine ElasticNet with tree-based models
-3. **Transaction Cost Optimization**: Refine TC-adjusted backtester
-4. **Real-time Integration**: Add live FRED data fetching
-5. **Risk Management**: Add stop-loss and position sizing rules
+**❌ SSRF Does NOT Beat S&P 500 Buy-and-Hold**
+
+The previous "197,000% return" and "40x better drawdown" claims were FALSE because:
+
+1. We were predicting yield curve spread, not S&P 500 returns
+2. The spread is highly autocorrelated - not comparable to equity returns
+3. We didn't compare against a meaningful benchmark
+
+**Actual Results:**
+- SSRF adds +0.8% direction accuracy over naive baseline
+- The model learns autocorrelation, not macroeconomic signals
+- Real alpha generation requires predicting equity returns directly
+
+---
+
+## Next Steps (Required)
+
+1. **Replace target with actual S&P 500 returns** (not yield curve spread)
+2. **Implement proper baseline comparison** (naive, historical mean, random)
+3. **Add statistical significance testing** (bootstrap, permutation tests)
+4. **Consider transaction costs** in evaluation
+5. **Test on truly out-of-sample periods** (e.g., train on 1980-2000, test on 2000-2026)
 
 ---
 
 *Last Updated: 2026-06-01*
+*Corrected by: MiniMax Agent*
