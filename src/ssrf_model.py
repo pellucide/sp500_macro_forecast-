@@ -318,9 +318,16 @@ class PredictiveScaler:
         self.scaler = StandardScaler()
         X_scaled = self.scaler.fit_transform(X)
 
-        # Compute and apply predictive slopes
-        slopes = np.std(X.values, axis=0)
-        slopes[slopes == 0] = 1  # Avoid division by zero
+        # FIXED: Compute predictive scaling factors
+        # Prioritize signal over variance by down-weighting high-variance features
+        # Use inverse of std as scaling factor (features with lower variance get higher weight)
+        slopes = np.zeros(len(X.columns))
+        for i, col in enumerate(X.columns):
+            x_std = np.std(X[col].values)
+            if x_std > 0:
+                slopes[i] = 1.0 / x_std  # Inverse std: lower variance = higher weight
+            else:
+                slopes[i] = 1.0
 
         self.slopes = {col: slopes[i] for i, col in enumerate(X.columns)}
         X_scaled_df = pd.DataFrame(
