@@ -206,9 +206,17 @@ class WalkForwardBacktester:
         # Optional: Scale predictions to match target variance
         # NOTE: Disabled by default - scaling amplifies noise and increases MSE
         # Only enables when explicitly requested or scale_factor <= 5
+        # FIXED: Use expanding window to prevent data leakage
         if scale_predictions and len(predictions) > 10:
             pred_std = predictions.std()
-            actual_std = actual_returns.std()
+            # Use expanding window std: only use past actual returns (no lookahead)
+            expanding_std = actual_returns.expanding().std()
+            # Use the std from the first half of test period as reference
+            mid_point = len(expanding_std) // 2
+            if mid_point > 10:
+                actual_std = expanding_std.iloc[mid_point - 1]
+            else:
+                actual_std = expanding_std.iloc[0]
             if pred_std > 0.001 and actual_std > 0.001:
                 scale_factor = actual_std / pred_std
                 # Only scale if factor is very modest (1.0 to 5)
@@ -534,7 +542,18 @@ def plot_predictions(
 
     # Plot 2: Cumulative Returns
     ax2 = axes[1]
-    portfolio_returns = result.actual_returns * np.sign(result.predictions.values).clip(0, 1)
+    # Use same long/short logic as _simulate_portfolio() for consistency
+    signals = result.predictions.values
+    positions = np.sign(signals)
+    max_signal = np.abs(signals).max()
+    if max_signal > 0:
+        positions = positions * (np.abs(signals) / max_signal)
+    else:
+        positions = np.zeros(len(signals))
+    portfolio_returns = pd.Series(
+        positions * result.actual_returns.values,
+        index=result.dates
+    )
     benchmark_returns = result.actual_returns
 
     cumulative_portfolio = (1 + portfolio_returns).cumprod()
