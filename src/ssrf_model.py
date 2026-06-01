@@ -280,19 +280,18 @@ class PredictiveScaler:
 
     def __init__(self):
         self.slopes = {}
-        # CACHE: Store fitted scaler and scaled data
-        self._scaler_cache = {}
-        self._scaled_cache = {}
 
     def fit_transform(
         self,
-        X: pd.DataFrame
+        X: pd.DataFrame,
+        y: pd.Series
     ) -> Tuple[pd.DataFrame, np.ndarray]:
         """
         Apply predictive scaling.
 
         Args:
             X: Screened feature DataFrame
+            y: Target series for computing predictive slopes
 
         Returns:
             Tuple of (scaled features, scaling factors)
@@ -300,46 +299,42 @@ class PredictiveScaler:
         if X.empty or X.shape[1] == 0:
             return X, np.array([])
 
-        # Create cache key - use tuple for hashability
-        cols_tuple = tuple(X.columns.tolist())
-        try:
-            values_hash = hash(X.values.tobytes())
-        except (TypeError, ValueError):
-            values_hash = id(X)
-        cache_key = (X.shape, cols_tuple, values_hash)
-
-        if cache_key in self._scaler_cache:
-            cached_result = self._scaled_cache[cache_key]
-            # Return cached result with current index
-            X_scaled_df, slopes = cached_result
-            return pd.DataFrame(X_scaled_df.values, index=X.index, columns=X.columns), slopes
-
         # Standardize first - store scaler as instance variable
         self.scaler = StandardScaler()
         X_scaled = self.scaler.fit_transform(X)
 
-        # FIXED: Compute predictive scaling factors
-        # Prioritize signal over variance by down-weighting high-variance features
-        # Use inverse of std as scaling factor (features with lower variance get higher weight)
-        slopes = np.zeros(len(X.columns))
+        # FIXED: Compute slopes on STANDARDIZED data to avoid unit mismatch
+        # raw x has variance ~10^24 (e.g., GDP in trillions), slopes ~10^-14
+        # On standardized data, var(x_std) = 1, so slope = cov(x_std, y) / 1 = cov(x_std, y)
+        # This is the correlation coefficient, which is O(1)
+        slopes = np.ones(len(X.columns))
+        y_aligned = pd.Series(np.ravel(y), index=X.index).loc[X.index]
+
         for i, col in enumerate(X.columns):
-            x_std = np.std(X[col].values)
-            if x_std > 0:
-                slopes[i] = 1.0 / x_std  # Inverse std: lower variance = higher weight
-            else:
-                slopes[i] = 1.0
+            x_vals = X_scaled[:, i]  # Use STANDARDIZED data
+            y_vals = y_aligned.values
+
+            # Remove NaNs pairwise
+            mask = ~(np.isnan(x_vals) | np.isnan(y_vals))
+            if mask.sum() < 3:
+                continue  # Keep slope = 1.0 as fallback
+
+            x_clean = x_vals[mask]
+            y_clean = y_vals[mask]
+
+            y_mean = y_clean.mean()
+            cov = np.mean((x_clean) * (y_clean - y_mean))  # x_clean is already mean-centered
+
+            # var(x_std) = 1 by definition, so slope = cov / 1 = cov
+            slopes[i] = cov
 
         self.slopes = {col: slopes[i] for i, col in enumerate(X.columns)}
-        X_scaled_df = pd.DataFrame(
-            X_scaled,
-            index=X.index,
-            columns=X.columns
-        )
 
-        # CACHE: Store result (use values copy to avoid memory issues)
-        if len(self._scaler_cache) < 50:
-            X_scaled_df_copy = pd.DataFrame(X_scaled_df.values.copy(), index=X_scaled_df.index, columns=X_scaled_df.columns)
-            self._scaled_cache[cache_key] = (X_scaled_df_copy, slopes.copy())
+        # FIXED: Apply predictive scaling - standardized feature * predictive slope
+        # Features with strong univariate predictive power get amplified
+        X_pred_scaled = X_scaled * slopes
+
+        X_scaled_df = pd.DataFrame(X_pred_scaled, index=X.index, columns=X.columns)
 
         return X_scaled_df, slopes
 
@@ -364,8 +359,11 @@ class PredictiveScaler:
             self.scaler = StandardScaler()
             X_scaled = self.scaler.fit_transform(X)
 
-        # Apply scaling using stored slopes
-        return pd.DataFrame(X_scaled, index=X.index, columns=X.columns)
+        # FIXED: Apply stored predictive slopes to scaled data
+        slope_array = np.array([self.slopes.get(col, 1.0) for col in X.columns])
+        X_pred_scaled = X_scaled * slope_array
+
+        return pd.DataFrame(X_pred_scaled, index=X.index, columns=X.columns)
 
 
 class SupervisedFactorExtractor:
@@ -903,7 +901,7 @@ class SSRFModel:
 
         # Stage 2: Predictive scaling
         logger.info("Stage 2: Predictive scaling")
-        X_scaled, scaling_factors = self.scaler.fit_transform(X_screened)
+        X_scaled, scaling_factors = self.scaler.fit_transform(X_screened, y)
 
         # Stage 3: Factor extraction
         logger.info("Stage 3: Supervised factor extraction")
@@ -929,7 +927,7 @@ class SSRFModel:
         X_final = self.regime_proxy.create_interaction_terms(factors, regime_p)
 
         # Handle any remaining NaN
-        X_final = X_final.fillna(0)
+        X_final = X_final.fillna(0).infer_objects(copy=False)
 
         # Optional: Add regime detection features
         regime_features = None
@@ -985,7 +983,7 @@ class SSRFModel:
         # Store model state - use getattr for models without coef_ (tree-based models)
         self.state = ModelState(
             selected_features={k: list(v.columns) for k, v in screened.items() if not v.empty},
-            scaling_factors={col: scaling_factors[i] for i, col in enumerate(X_screened.columns) if col in selected_features},
+            scaling_factors=dict(zip(X_screened.columns, scaling_factors)),
             scaler=StandardScaler(),  # Placeholder
             pca=self.factor_extractor.pca,
             mean_factors_train=self.factor_extractor.mean_factors_train,
@@ -1060,7 +1058,7 @@ class SSRFModel:
             regime_p = pd.Series([0.5] * n_samples, index=X.index)
 
         X_final = self.regime_proxy.create_interaction_terms(factors, regime_p)
-        X_final = X_final.fillna(0)
+        X_final = X_final.fillna(0).infer_objects(copy=False)
 
         # Add regime features if regime detection was enabled during training
         if self.config.use_regime_detection and self.state.regime_detector is not None:

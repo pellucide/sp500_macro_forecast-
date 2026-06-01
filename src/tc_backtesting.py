@@ -209,24 +209,24 @@ class TCAdjustedWalkForwardBacktester:
 
     def _adjust_predictions_for_tc(self, predictions: pd.Series) -> pd.Series:
         """
-        Adjust predictions for transaction costs.
+        Adjust predictions for expected transaction costs.
 
-        TC-adjusted signal = signal * exp(-turnover * tc_rate)
+        Transaction costs reduce net returns. All predictions are scaled down
+        by the expected TC cost, proportional to turnover.
+
+        Net prediction = signal * (1 - expected_tc_cost)
+        where expected_tc_cost = turnover * tc_rate / 10000
         """
-        # Compute signal magnitude
-        pred_std = predictions.std()
-        if pred_std > 0:
-            signal_magnitude = predictions.abs() / pred_std
-        else:
-            signal_magnitude = predictions.abs()
+        # FIXED: Simple, correct TC adjustment - always reduces, never amplifies
+        # TC cost = turnover * tc_rate (in decimal form)
+        tc_cost = self.expected_turnover * self.effective_tc_rate / 10000
 
-        # Compute TC factor
-        tc_factor = np.exp(-self.expected_turnover * self.effective_tc_rate / 10000)
+        # Apply fixed reduction to all predictions
+        adjustment_factor = 1.0 - tc_cost
 
-        # Adjust predictions
-        adjusted = predictions * tc_factor
+        adjusted = predictions * adjustment_factor
 
-        logger.info(f"TC adjustment: predictions scaled by {tc_factor:.4f}")
+        logger.info(f"TC adjustment: predictions scaled by {adjustment_factor:.4f} (TC cost: {tc_cost*100:.4f}%)")
 
         return adjusted
 

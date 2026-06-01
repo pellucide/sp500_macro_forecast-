@@ -6,7 +6,7 @@ Rigorous expanding window validation with Campbell-Thompson restrictions
 import warnings
 import numpy as np
 import pandas as pd
-from typing import Optional, Dict, List, Tuple, Callable
+from typing import Optional, Dict, List, Tuple, Callable, Union
 from dataclasses import dataclass
 import logging
 
@@ -214,38 +214,36 @@ class WalkForwardBacktester:
         # Optional: Scale predictions to match target variance
         # NOTE: Disabled by default - scaling amplifies noise and increases MSE
         # Only enables when explicitly requested or scale_factor <= 5
-        # FIXED: Use expanding window to prevent data leakage
+        # FIXED: Use training period std only - no lookahead into test period
         if scale_predictions and len(predictions) > 10:
             pred_std = predictions.std()
-            # Use expanding window std: only use past actual returns (no lookahead)
-            expanding_std = actual_returns.expanding().std()
-            # Use the std from the first half of test period as reference
-            mid_point = len(expanding_std) // 2
-            if mid_point > 10:
-                actual_std = expanding_std.iloc[mid_point - 1]
-            else:
-                actual_std = expanding_std.iloc[0]
-            if pred_std > 0.001 and actual_std > 0.001:
-                scale_factor = actual_std / pred_std
-                # Only scale if factor is very modest (1.0 to 5)
+            # Use training period std as reference (no test period data)
+            train_end_idx = len(y) - len(predictions)
+            train_std = y.iloc[:train_end_idx].std()
+            # Only scale if factor is very modest (1.0 to 5)
+            if pred_std > 0.001 and train_std > 0.001:
+                scale_factor = train_std / pred_std
                 if 1.0 < scale_factor <= 5:
                     predictions = predictions * scale_factor
                     logger.info(f"Scaled predictions by factor {scale_factor:.2f} to match target variance")
 
         # Compute benchmark (historical mean from training window)
-        # FIXED: Exclude test observation from benchmark calculation
+        # FIXED: Use fixed training cutoff (no drift into test period)
+        # The test period starts at len(y) - len(predictions)
+        # For step i, we use data up to (but not including) test_date_i
+        # Training cutoff is fixed at the start of test period
         benchmark = []
+        test_data_start = len(y) - len(predictions)
         for i, test_date in enumerate(test_dates):
-            # Find the training window end index (before test date)
-            # At step i, training ends at train_end_idx from the walk-forward loop
-            # We need to use the same index used during training
-            if i < len(predictions):
-                # Use training data from expanding window up to test date
-                # Benchmark should NOT include the test observation
-                y_before_test = y.iloc[:len(y) - len(predictions) + i]
-                benchmark.append(y_before_test.mean())
-            else:
-                benchmark.append(y.mean())
+            # FIXED: Use FIXED cutoff - no +i drift
+            # benchmark_i should use all training data (before test period starts)
+            y_before_test = y.iloc[:test_data_start]  # Fixed cutoff, no drift
+            benchmark.append(y_before_test.mean())
+        # Alternative: Expanding benchmark (include previous test returns in benchmark)
+        # Uncomment below and comment above for expanding version:
+        # for i in range(len(test_dates)):
+        #     y_before_test = y.iloc[:test_data_start + i]
+        #     benchmark.append(y_before_test.mean())
 
         benchmark = pd.Series(benchmark, index=predictions.index, name='benchmark')
 
@@ -437,6 +435,9 @@ class RollingBacktester:
     """
     Rolling window backtester (alternative to expanding window).
     Uses fixed-size training windows.
+
+    NOTE: This class is currently a stub and not used.
+    WalkForwardBacktester with expanding window is recommended.
     """
 
     def __init__(
@@ -469,9 +470,11 @@ class RollingBacktester:
         verbose: bool = True
     ) -> BacktestResult:
         """Run rolling window backtest."""
-        # Similar to WalkForwardBacktester but with fixed training window
-        # See WalkForwardBacktester.run() for implementation
-        pass  # Would be implemented similarly
+        # NOTE: Not implemented - use WalkForwardBacktester instead
+        raise NotImplementedError(
+            "RollingBacktester.run() is not implemented. "
+            "Use WalkForwardBacktester with expanding window instead."
+        )
 
 
 def compare_models(
@@ -517,19 +520,37 @@ def compare_models(
 # Visualization
 # =============================================================================
 def plot_predictions(
-    result: BacktestResult,
+    result: Union[BacktestResult, dict],
     save_path: Optional[str] = None
 ) -> 'matplotlib.figure.Figure':
     """
     Plot prediction results.
 
     Args:
-        result: BacktestResult
+        result: BacktestResult or dict with keys: predictions, actual_returns,
+                benchmark_predictions, dates, train_windows
         save_path: Optional path to save figure
 
     Returns:
         Matplotlib figure
     """
+    # FIXED: Support both BacktestResult and dict inputs
+    if isinstance(result, dict):
+        predictions = result.get('predictions')
+        actual_returns = result.get('actual_returns')
+        benchmark = result.get('benchmark_predictions')
+        dates = result.get('dates')
+        train_windows = result.get('train_windows', [])
+    else:
+        predictions = result.predictions
+        actual_returns = result.actual_returns
+        benchmark = result.benchmark_predictions
+        dates = result.dates
+        train_windows = result.train_windows
+
+    if predictions is None or actual_returns is None:
+        warnings.warn("Missing predictions or actual_returns in result")
+        return None
     try:
         import matplotlib.pyplot as plt
         import matplotlib.dates as mdates
@@ -539,13 +560,11 @@ def plot_predictions(
 
     fig, axes = plt.subplots(3, 1, figsize=(14, 12))
 
-    dates = result.dates
-
     # Plot 1: Predictions vs Actual
     ax1 = axes[0]
-    ax1.plot(dates, result.actual_returns.values, label='Actual', alpha=0.7, linewidth=1)
-    ax1.plot(dates, result.predictions.values, label='SSRF Predictions', alpha=0.7, linewidth=1)
-    ax1.plot(dates, result.benchmark_predictions.values, label='Benchmark', alpha=0.5, linestyle='--')
+    ax1.plot(dates, actual_returns.values, label='Actual', alpha=0.7, linewidth=1)
+    ax1.plot(dates, predictions.values, label='SSRF Predictions', alpha=0.7, linewidth=1)
+    ax1.plot(dates, benchmark.values, label='Benchmark', alpha=0.5, linestyle='--')
     ax1.axhline(y=0, color='gray', linestyle='-', alpha=0.3)
     ax1.set_title('S&P 500 Monthly Returns: Actual vs Predicted')
     ax1.set_ylabel('Return')
@@ -557,7 +576,7 @@ def plot_predictions(
     # Plot 2: Cumulative Returns
     ax2 = axes[1]
     # Use same long/short logic as _simulate_portfolio() for consistency
-    signals = result.predictions.values
+    signals = predictions.values
     positions = np.sign(signals)
     max_signal = np.abs(signals).max()
     if max_signal > 0:
@@ -565,10 +584,10 @@ def plot_predictions(
     else:
         positions = np.zeros(len(signals))
     portfolio_returns = pd.Series(
-        positions * result.actual_returns.values,
-        index=result.dates
+        positions * actual_returns.values,
+        index=dates
     )
-    benchmark_returns = result.actual_returns
+    benchmark_returns = actual_returns
 
     cumulative_portfolio = (1 + portfolio_returns).cumprod()
     cumulative_benchmark = (1 + benchmark_returns).cumprod()
@@ -610,7 +629,7 @@ def plot_predictions(
 
 
 def plot_feature_importance(
-    result: BacktestResult,
+    result: Union[BacktestResult, dict],
     top_n: int = 20,
     save_path: Optional[str] = None
 ) -> 'matplotlib.figure.Figure':
@@ -618,13 +637,27 @@ def plot_feature_importance(
     Plot feature importance across the backtest.
 
     Args:
-        result: BacktestResult
+        result: BacktestResult or dict with keys: predictions, actual_returns, dates
         top_n: Number of top features to show
         save_path: Optional path to save figure
 
     Returns:
         Matplotlib figure
     """
+    # FIXED: Support both BacktestResult and dict inputs
+    if isinstance(result, dict):
+        predictions = result.get('predictions')
+        actual_returns = result.get('actual_returns')
+        dates = result.get('dates')
+    else:
+        predictions = result.predictions
+        actual_returns = result.actual_returns
+        dates = result.dates
+
+    if predictions is None or actual_returns is None:
+        warnings.warn("Missing predictions or actual_returns in result")
+        return None
+
     try:
         import matplotlib.pyplot as plt
     except ImportError:
@@ -636,12 +669,12 @@ def plot_feature_importance(
     # For now, just show hit ratio over time
     # Feature importance would require storing per-fold selections
     hit_ratio_rolling = (
-        (np.sign(result.predictions.values) == np.sign(result.actual_returns.values))
+        (np.sign(predictions.values) == np.sign(actual_returns.values))
         .rolling(12)
         .mean()
     )
 
-    ax.plot(result.dates, hit_ratio_rolling, linewidth=2)
+    ax.plot(dates, hit_ratio_rolling, linewidth=2)
     ax.axhline(y=0.5, color='gray', linestyle='--', label='Random (50%)')
     ax.axhline(y=hit_ratio_rolling.mean(), color='green', linestyle='--',
                label=f'Mean ({hit_ratio_rolling.mean():.1%})')

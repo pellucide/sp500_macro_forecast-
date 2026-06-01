@@ -331,12 +331,16 @@ def evaluate_results(
 
     # R² OOS confidence interval
     from .evaluation import StatisticalTests
-    r2_lower, r2_upper = StatisticalTests.out_of_sample_r2_confidence_interval(
-        metrics['r2_oos'],
-        len(results['predictions'])
-    )
-    metrics['r2_oos_ci_lower'] = r2_lower
-    metrics['r2_oos_ci_upper'] = r2_upper
+    # Handle TC-adjusted backtest metric keys
+    r2_oos_key = 'r2_oos_tc_adjusted' if 'r2_oos_tc_adjusted' in metrics else 'r2_oos'
+    r2_oos_value = metrics.get(r2_oos_key, metrics.get('r2_oos', 0))
+    if r2_oos_value != 0 and len(results['predictions']) > 0:
+        r2_lower, r2_upper = StatisticalTests.out_of_sample_r2_confidence_interval(
+            r2_oos_value,
+            len(results['predictions'])
+        )
+        metrics['r2_oos_ci_lower'] = r2_lower
+        metrics['r2_oos_ci_upper'] = r2_upper
 
     return metrics
 
@@ -575,8 +579,11 @@ def main(args=None):
             # Non-interactive mode: use sample data directly without prompting
             pass
 
-    # Suppress warnings
-    warnings.filterwarnings('ignore')
+    # Suppress only specific known warnings (not all warnings)
+    # FutureWarning from pandas fillna is handled in code with .infer_objects()
+    # ImportWarning from optional packages is expected
+    warnings.filterwarnings('ignore', category=FutureWarning)
+    warnings.filterwarnings('ignore', category=ImportWarning)
 
     # Setup
     env = setup_environment(parsed_args)

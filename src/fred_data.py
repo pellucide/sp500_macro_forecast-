@@ -256,7 +256,7 @@ class FREDDataLoader:
                 return cached['SP500_return']
 
         try:
-            # S&P 500 price index (daily)
+            # S&P 500 price index (daily) - try FRED first
             spx = self.fred.get_series(
                 "SP500",
                 start_date=start_date,
@@ -272,6 +272,11 @@ class FREDDataLoader:
             returns = spx_monthly.pct_change().dropna()
             returns.name = "SP500_return"
 
+            # If we got very few observations, try yfinance as fallback
+            if len(returns) < 100:
+                logger.warning("FRED SP500 data is sparse, trying yfinance fallback...")
+                raise ValueError("Insufficient data from FRED")
+
             # Save to cache
             if use_cache:
                 cache_key = _get_cache_key(start_date, end_date, "spx")
@@ -280,7 +285,28 @@ class FREDDataLoader:
             return returns
 
         except Exception as e:
-            logger.error(f"Failed to fetch S&P 500 data: {e}")
+            logger.warning(f"FRED SP500 fetch failed ({e}), trying yfinance fallback...")
+            try:
+                import yfinance as yf
+                # Use yfinance to get longer history
+                sp500 = yf.download('^GSPC', start='1959-01-01', progress=False)
+                close = sp500['Close']
+                if isinstance(close, pd.DataFrame):
+                    close = close.iloc[:, 0]
+                monthly = close.resample('ME').last()
+                returns = monthly.pct_change().dropna()
+                returns.name = "SP500_return"
+
+                # Save to cache
+                if use_cache:
+                    cache_key = _get_cache_key(start_date, end_date, "spx")
+                    save_to_cache(returns.to_frame(), "spx_returns", cache_key)
+
+                logger.info(f"yfinance fallback: {len(returns)} monthly returns")
+                return returns
+            except Exception as yf_err:
+                logger.error(f"yfinance fallback also failed: {yf_err}")
+
             return pd.Series(dtype=float, name="SP500_return")
 
     def fetch_sector_returns(self, start_date: str, end_date: Optional[str] = None) -> pd.DataFrame:
@@ -638,8 +664,9 @@ class DataProcessor:
         # Remove rows with NaN in target
         combined = combined.dropna(subset=['target'])
 
-        # Forward fill missing indicator values
-        combined = combined.ffill().bfill()
+        # FIXED: Use only ffill() - bfill() causes look-ahead bias
+        # Forward fill uses only past data (OK), backward fill uses future data (NOT OK)
+        combined = combined.ffill()
 
         # FIXED: Shift target forward by 1 for proper 1-month-ahead forecasting
         # This ensures X[t] predicts the return for month t+1, not month t
