@@ -407,10 +407,12 @@ class FREDDataLoader:
             return []
 
         try:
-            # Get release dates for the indicator
-            releases = self.fred.get_series_releases(indicator)
-            return [r['date'] for r in releases if r['date'].startswith(str(year))]
-        except Exception:
+            # Get vintage dates for the indicator (available in fredapi)
+            vintage_dates = self.fred.get_series_vintage_dates(indicator)
+            # Filter by year
+            return [d for d in vintage_dates if str(d).startswith(str(year))]
+        except Exception as e:
+            logger.warning(f"Failed to get vintage dates for {indicator}: {e}")
             return []
 
 
