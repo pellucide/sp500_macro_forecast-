@@ -882,6 +882,6 @@ if __name__ == "__main__":
     else:
         # Generate sample data
         print("No API key found. Generating sample data for testing...")
-        indicators, target = generate_sample_data()
+        indicators, target, _ = generate_sample_data()
         print(f"Generated {len(indicators.columns)} indicators and {len(target)} target values")
         print(f"Date range: {indicators.index[0]} to {indicators.index[-1]}")

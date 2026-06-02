@@ -1388,7 +1388,7 @@ if __name__ == "__main__":
     # Generate sample data
     from .fred_data import generate_sample_data
 
-    indicators, target = generate_sample_data(n_periods=300, n_indicators=50)
+    indicators, target, _ = generate_sample_data(n_periods=300, n_indicators=50)
 
     # Define groups
     groups = {
