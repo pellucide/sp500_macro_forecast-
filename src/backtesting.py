@@ -11,6 +11,7 @@ from dataclasses import dataclass
 import logging
 
 from .config import BacktestConfig
+from . import ensure_series
 from .ssrf_model import SSRFModel, SSRFConfig
 from .evaluation import _simulate_asymmetric_portfolio
 
@@ -101,13 +102,7 @@ class WalkForwardBacktester:
         Returns:
             BacktestResult with predictions and metrics
         """
-        # FIXED: Handle DataFrame target (e.g., from yfinance with multi-level columns)
-        # Convert DataFrame to Series if needed
-        if isinstance(y, pd.DataFrame):
-            if y.shape[1] == 1:
-                y = y.iloc[:, 0]  # Get first column as Series
-            else:
-                raise ValueError(f"y must be a Series or single-column DataFrame, got shape {y.shape}")
+        y = ensure_series(y, "y")
 
         # Align X and y
         common_idx = X.index.intersection(y.index)

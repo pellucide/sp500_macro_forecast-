@@ -3,50 +3,37 @@
 SSRF - TRULY OUT-OF-SAMPLE TEST (FIXED)
 Proper walk-forward with correct temporal alignment
 """
-import pandas as pd
 import numpy as np
-import yfinance as yf
 from sklearn.linear_model import ElasticNet
 from sklearn.preprocessing import StandardScaler
-from scipy import stats
 import warnings
 warnings.filterwarnings('ignore')
 
+from src.test_utils import (
+    load_spx_returns, load_fred_enhanced, get_feature_columns,
+    align_features_and_target, calc_metrics, bootstrap_ci,
+    print_header
+)
+
 np.random.seed(42)
 
-print("="*70)
-print("SSRF TRULY OUT-OF-SAMPLE TEST (FIXED)")
-print("="*70)
+print_header("SSRF TRULY OUT-OF-SAMPLE TEST (FIXED)")
 
 # Load data
-spx = yf.download('^GSPC', start='1979-01-01', end='2026-06-01', progress=False)
-spx_monthly = spx['Close'].resample('ME').last()
-spx_returns = spx_monthly.pct_change().dropna() * 100
-spx_returns.index = spx_returns.index.normalize()
+spx_returns = load_spx_returns()
+fred = load_fred_enhanced()
 
-fred = pd.read_csv('data/fred_cache/all_fred_data_enhanced.csv', index_col=0, parse_dates=True)
-fred = fred.dropna(thresh=fred.shape[1] * 0.5)
-
-feature_cols = [c for c in fred.columns if c not in ['GS10', 'TB3MS'] and not c.endswith('_REGIME')]
+feature_cols = get_feature_columns(fred)
 X = fred[feature_cols].ffill().bfill().fillna(0)
-X.index = X.index.normalize()
 
-common_idx = X.index.intersection(spx_returns.index)
-X_aligned = X.loc[common_idx]
-spx_aligned = spx_returns.loc[common_idx]
-
-X_arr = X_aligned.values
-y_arr = spx_aligned.values.flatten()
-dates = X_aligned.index
+X_arr, y_arr, dates = align_features_and_target(X, spx_returns)
 
 print(f"\nData: {len(X_arr)} periods ({dates[0].strftime('%Y-%m')} to {dates[-1].strftime('%Y-%m')})")
 
 # ============================================================================
 # TEST 1: Expanding window walk-forward
 # ============================================================================
-print("\n" + "="*70)
-print("TEST 1: EXPANDING WINDOW")
-print("="*70)
+print_header("TEST 1: EXPANDING WINDOW")
 
 train_window = 60
 
@@ -72,19 +59,14 @@ for i in range(train_window, len(X_arr)):
 
 exp_preds = np.array(exp_preds)
 exp_actual = np.array(exp_actual)
+exp_metrics = calc_metrics(exp_preds, exp_actual)
 
-exp_hit = np.mean(np.sign(exp_preds) == np.sign(exp_actual)) * 100
-exp_pnl = exp_preds * exp_actual
-exp_sharpe = np.mean(exp_pnl) * 12 / (np.std(exp_pnl) * np.sqrt(12)) if np.std(exp_pnl) > 0 else 0
-
-print(f"SSRF (Expanding): Hit={exp_hit:.1f}%, Sharpe={exp_sharpe:.3f}")
+print(f"SSRF (Expanding): Hit={exp_metrics['hit_ratio']:.1f}%, Sharpe={exp_metrics['sharpe']:.3f}")
 
 # ============================================================================
 # TEST 2: FIXED window walk-forward
 # ============================================================================
-print("\n" + "="*70)
-print("TEST 2: FIXED WINDOW (60 months rolling)")
-print("="*70)
+print_header("TEST 2: FIXED WINDOW (60 months rolling)")
 
 fix_preds = []
 fix_actual = []
@@ -109,33 +91,23 @@ for i in range(train_window, len(X_arr)):
 
 fix_preds = np.array(fix_preds)
 fix_actual = np.array(fix_actual)
+fix_metrics = calc_metrics(fix_preds, fix_actual)
 
-fix_hit = np.mean(np.sign(fix_preds) == np.sign(fix_actual)) * 100
-fix_pnl = fix_preds * fix_actual
-fix_sharpe = np.mean(fix_pnl) * 12 / (np.std(fix_pnl) * np.sqrt(12)) if np.std(fix_pnl) > 0 else 0
-
-print(f"SSRF (Fixed): Hit={fix_hit:.1f}%, Sharpe={fix_sharpe:.3f}")
+print(f"SSRF (Fixed): Hit={fix_metrics['hit_ratio']:.1f}%, Sharpe={fix_metrics['sharpe']:.3f}")
 
 # ============================================================================
 # TEST 3: TRUE OOS (Train 1980-2000, Test 2000-2026)
-# FIXED: Walk-forward, not single train
 # ============================================================================
-print("\n" + "="*70)
-print("TEST 3: TRUE OOS (Train 1980-2000, Test 2000-2026)")
-print("="*70)
+print_header("TEST 3: TRUE OOS (Train 1980-2000, Test 2000-2026)")
 
 split_idx = 240  # ~2000-01
 
-# Walk-forward: at each step, train on X[:i], predict y[i+1]
-# Start after split_idx, train on all data up to i
 oos_preds = []
 oos_actual = []
 
 for i in range(split_idx, len(y_arr) - 1):
-    # Train on X[:i+1] and y[:i+1]
     X_train = X_arr[:i+1]
     y_train = y_arr[:i+1]
-    # Test on X[i+1] to predict y[i+1]
     X_test = X_arr[i+1:i+2]
     y_actual = y_arr[i+1]
 
@@ -153,67 +125,50 @@ for i in range(split_idx, len(y_arr) - 1):
 oos_preds = np.array(oos_preds)
 oos_actual = np.array(oos_actual)
 
-oos_hit = np.mean(np.sign(oos_preds) == np.sign(oos_actual)) * 100
-oos_pnl = oos_preds * oos_actual
-oos_sharpe = np.mean(oos_pnl) * 12 / (np.std(oos_pnl) * np.sqrt(12)) if np.std(oos_pnl) > 0 else 0
+oos_metrics = calc_metrics(oos_preds, oos_actual)
 
-print(f"SSRF (True OOS): Hit={oos_hit:.1f}%, Sharpe={oos_sharpe:.3f}")
+print(f"SSRF (True OOS): Hit={oos_metrics['hit_ratio']:.1f}%, Sharpe={oos_metrics['sharpe']:.3f}")
 
 # Baselines
 momentum_oos = np.full(len(oos_actual), np.sign(y_arr[split_idx - 1]))
-mom_hit = np.mean(np.sign(momentum_oos) == np.sign(oos_actual)) * 100
-mom_pnl = momentum_oos * oos_actual
-mom_sharpe = np.mean(mom_pnl) * 12 / (np.std(mom_pnl) * np.sqrt(12)) if np.std(mom_pnl) > 0 else 0
+mom_metrics = calc_metrics(momentum_oos, oos_actual)
 
 hist_oos = np.full(len(oos_actual), np.mean(y_arr[:split_idx]))
 hist_hit = np.mean(np.sign(hist_oos) == np.sign(oos_actual)) * 100
 
 spx_total = (np.prod(1 + oos_actual/100) - 1) * 100
 
-print(f"Momentum (True OOS): Hit={mom_hit:.1f}%, Sharpe={mom_sharpe:.3f}")
+print(f"Momentum (True OOS): Hit={mom_metrics['hit_ratio']:.1f}%, Sharpe={mom_metrics['sharpe']:.3f}")
 print(f"Hist Mean (True OOS): Hit={hist_hit:.1f}%")
 print(f"SPX Buy&Hold (True OOS): {spx_total:.1f}%")
 
 # Bootstrap CI
 print("\n--- Bootstrap 95% CI for True OOS ---")
-n_boot = 1000
-sharpes_boot = []
-for _ in range(n_boot):
-    idx = np.random.choice(len(oos_pnl), size=len(oos_pnl), replace=True)
-    boot_pnl = oos_pnl[idx]
-    sh = np.mean(boot_pnl) * 12 / (np.std(boot_pnl) * np.sqrt(12)) if np.std(boot_pnl) > 0 else 0
-    sharpes_boot.append(sh)
-
-ci_low = np.percentile(sharpes_boot, 2.5)
-ci_high = np.percentile(sharpes_boot, 97.5)
+ci_low, ci_high = bootstrap_ci(oos_preds, oos_actual)
 print(f"SSRF 95% CI: [{ci_low:.3f}, {ci_high:.3f}]")
 
 # ============================================================================
 # SUMMARY
 # ============================================================================
-print("\n" + "="*70)
-print("SUMMARY")
-print("="*70)
+print_header("SUMMARY")
 print(f"{'Test':<25} {'Hit%':>8} {'Sharpe':>8}")
-print("-"*45)
-print(f"{'Expanding Window':<25} {exp_hit:>8.1f} {exp_sharpe:>8.3f}")
-print(f"{'Fixed Window (60m)':<25} {fix_hit:>8.1f} {fix_sharpe:>8.3f}")
-print(f"{'True OOS (2000-2026)':<25} {oos_hit:>8.1f} {oos_sharpe:>8.3f}")
-print(f"{'Momentum (True OOS)':<25} {mom_hit:>8.1f} {mom_sharpe:>8.3f}")
+print("-" * 45)
+print(f"{'Expanding Window':<25} {exp_metrics['hit_ratio']:>8.1f} {exp_metrics['sharpe']:>8.3f}")
+print(f"{'Fixed Window (60m)':<25} {fix_metrics['hit_ratio']:>8.1f} {fix_metrics['sharpe']:>8.3f}")
+print(f"{'True OOS (2000-2026)':<25} {oos_metrics['hit_ratio']:>8.1f} {oos_metrics['sharpe']:>8.3f}")
+print(f"{'Momentum (True OOS)':<25} {mom_metrics['hit_ratio']:>8.1f} {mom_metrics['sharpe']:>8.3f}")
 print(f"{'SPX Buy&Hold':<25} {'N/A':>8} {spx_total:>8.1f}%")
 
-print("\n" + "="*70)
-print("VERDICT")
-print("="*70)
+print_header("VERDICT")
 
-if oos_hit > 50 and oos_sharpe > 0 and ci_low > 0:
+if oos_metrics['hit_ratio'] > 50 and oos_metrics['sharpe'] > 0 and ci_low > 0:
     print("SSRF PASSES TRUE OOS TEST")
-elif oos_hit > 50 and oos_sharpe > 0:
+elif oos_metrics['hit_ratio'] > 50 and oos_metrics['sharpe'] > 0:
     print("SSRF MARGINALLY PASSES - CI includes zero")
 else:
     print("SSRF FAILS TRUE OOS TEST")
-    print(f"  Hit: {oos_hit:.1f}% (vs 50% random)")
-    print(f"  Sharpe: {oos_sharpe:.3f}")
+    print(f"  Hit: {oos_metrics['hit_ratio']:.1f}% (vs 50% random)")
+    print(f"  Sharpe: {oos_metrics['sharpe']:.3f}")
     print(f"  95% CI: [{ci_low:.3f}, {ci_high:.3f}]")
 
-print("\n" + "="*70)
+print("\n" + "=" * 70)

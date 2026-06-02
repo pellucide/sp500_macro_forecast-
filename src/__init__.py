@@ -3,6 +3,23 @@ S&P 500 Macroeconomic Forecasting Package
 State-Dependent Supervised Screening & Regularized Factor (SSRF) Architecture
 """
 
+import pandas as pd
+
+
+def ensure_series(y, name="y"):
+    """
+    Convert single-column DataFrame to Series.
+    Duplicated guard pattern extracted to eliminate copy-paste debt.
+    """
+    if isinstance(y, pd.DataFrame):
+        if y.shape[1] == 1:
+            return y.iloc[:, 0]
+        raise ValueError(
+            f"{name} must be a Series or single-column DataFrame, got shape {y.shape}"
+        )
+    return y
+
+
 from .config import (
     DataConfig,
     ModelConfig,

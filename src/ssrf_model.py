@@ -18,6 +18,7 @@ from sklearn.model_selection import TimeSeriesSplit
 from scipy import stats
 
 from .config import ModelConfig, DataConfig
+from . import ensure_series
 from .regime_detection import (
     RegimeConfig, RegimeType, MarketRegimeDetector, create_regime_features
 )
@@ -214,13 +215,7 @@ class GroupwiseScreen:
         Returns:
             Array of t-statistics
         """
-        # FIXED: Handle DataFrame target (e.g., from yfinance with multi-level columns)
-        # Convert DataFrame to Series if needed
-        if isinstance(y, pd.DataFrame):
-            if y.shape[1] == 1:
-                y = y.iloc[:, 0]  # Get first column as Series
-            else:
-                raise ValueError(f"y must be a Series or single-column DataFrame, got shape {y.shape}")
+        y = ensure_series(y, "y")
 
         # Align X and y
         valid_idx = ~(X.isna().any(axis=1) | y.isna())
@@ -585,13 +580,9 @@ class RegimeProxy:
         Returns:
             Percentile ranks (0-1)
         """
-        # Handle DataFrame inputs
-        if isinstance(values, pd.DataFrame):
-            if values.shape[1] == 1:
-                values = values.iloc[:, 0]
-        if isinstance(reference, pd.DataFrame):
-            if reference.shape[1] == 1:
-                reference = reference.iloc[:, 0]
+        values = ensure_series(values, "values")
+        if reference is not None:
+            reference = ensure_series(reference, "reference")
 
         if reference is None:
             reference = values
@@ -878,13 +869,7 @@ class SSRFModel:
         """
         logger.info("Fitting SSRF model...")
 
-        # FIXED: Handle DataFrame target (e.g., from yfinance with multi-level columns)
-        # Convert DataFrame to Series if needed
-        if isinstance(y, pd.DataFrame):
-            if y.shape[1] == 1:
-                y = y.iloc[:, 0]  # Get first column as Series
-            else:
-                raise ValueError(f"y must be a Series or single-column DataFrame, got shape {y.shape}")
+        y = ensure_series(y, "y")
 
         # Store original data for regime proxy calculation
         self._X_train = X.copy()
@@ -1034,10 +1019,8 @@ class SSRFModel:
         if self.state is None:
             raise ValueError("Model must be fitted before prediction")
 
-        # FIXED: Handle DataFrame target for y_for_regime
-        if y_for_regime is not None and isinstance(y_for_regime, pd.DataFrame):
-            if y_for_regime.shape[1] == 1:
-                y_for_regime = y_for_regime.iloc[:, 0]  # Get first column as Series
+        if y_for_regime is not None:
+            y_for_regime = ensure_series(y_for_regime, "y_for_regime")
 
         # Stage 1: Filter to only the features that were selected during training
         all_selected = []

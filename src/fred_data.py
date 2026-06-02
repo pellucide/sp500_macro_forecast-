@@ -4,6 +4,7 @@ Implements point-in-time discipline to prevent look-ahead bias
 """
 
 import warnings
+import time
 import numpy as np
 import pandas as pd
 from datetime import datetime, timedelta
@@ -117,6 +118,13 @@ class FREDDataLoader:
         self._fetch_count = 0
         self._last_fetch_time = None
 
+    def _rate_limit(self, min_interval: float = 0.2):
+        """Rate limit: sleep between API requests to avoid hitting limits."""
+        if self._fetch_count > 0 and self._last_fetch_time is not None:
+            elapsed = time.time() - self._last_fetch_time
+            if elapsed < min_interval:
+                time.sleep(min_interval - elapsed)
+
     def fetch_indicator(
         self,
         indicator: str,
@@ -139,12 +147,7 @@ class FREDDataLoader:
         if self.fred is None:
             raise ValueError("FRED API key required to fetch data")
 
-        # Rate limiting: sleep between requests to avoid hitting limits
-        import time
-        if self._fetch_count > 0 and self._last_fetch_time is not None:
-            elapsed = time.time() - self._last_fetch_time
-            if elapsed < 0.2:  # 200ms between requests (more conservative)
-                time.sleep(0.2 - elapsed)
+        self._rate_limit()
 
         self._fetch_count += 1
         self._last_fetch_time = time.time()
@@ -342,12 +345,7 @@ class FREDDataLoader:
 
         for ticker, name in sector_etfs.items():
             try:
-                # Rate limiting
-                import time
-                if self._fetch_count > 0 and self._last_fetch_time is not None:
-                    elapsed = time.time() - self._last_fetch_time
-                    if elapsed < 0.2:
-                        time.sleep(0.2 - elapsed)
+                self._rate_limit()
 
                 # Fetch sector ETF price
                 sector_data = self.fred.get_series(
@@ -429,8 +427,6 @@ class FREDDataLoader:
             cached = load_from_cache("sector_returns", cache_key)
             if cached is not None:
                 return cached
-
-        import time
 
         # Sector ETF tickers
         sector_etfs = {
