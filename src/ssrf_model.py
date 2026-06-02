@@ -82,12 +82,11 @@ class SSRFConfig:
     # 0.75 = only trade when very confident signals
     conviction_filter_enabled: bool = False  # Enable high-conviction filtering
 
-    # Prediction scaling
-    # SSRF predictions are often very small due to heavy regularization.
-    # This parameter scales up predictions to capture more return.
-    # Default: 10.0 (10x scaling to amplify directional signals)
-    # Lower values (1.0-5.0) for conservative, higher for aggressive strategies
-    prediction_scale: float = 10.0  # Multiply predictions by this factor
+    # Prediction scaling (DEPRECATED - no longer used)
+    # Positions are scaled by signal magnitude in backtesting._simulate_portfolio()
+    # which divides by max_signal. Scaling predictions was a no-op for portfolio returns.
+    # Kept for backward compatibility but has no effect.
+    prediction_scale: float = 1.0
 
 
 @dataclass
@@ -430,9 +429,9 @@ class SupervisedFactorExtractor:
         factors_df = pd.DataFrame(index=X.index, columns=factor_names)
         factors_df.loc[X.index[valid_mask]] = factors
 
-        # Fill NaN rows with forward/backward fill
+        # Fill NaN rows with forward fill only (bfill causes look-ahead bias)
         if (~valid_mask).sum() > 0:
-            factors_df = factors_df.ffill().bfill()
+            factors_df = factors_df.ffill()
 
         logger.info(
             f"Extracted {self.n_factors} factors. "
@@ -915,10 +914,12 @@ class SSRFModel:
         rolling_vol = self.regime_proxy.compute_rolling_volatility(y, self.config.regime_window)
         regime_p = self.regime_proxy.compute_percentile_rank(rolling_vol, rolling_vol)
 
-        # Store training percentiles and mean factors
-        self.regime_proxy.set_training_volatility_percentiles(
-            regime_p.dropna().values
-        )
+        # Store mean factors for centering interaction terms during prediction
+        # NOTE: training_percentiles is already correctly set inside
+        # compute_percentile_rank() above with raw volatility values.
+        # Do NOT call set_training_volatility_percentiles() here — it would
+        # overwrite with percentile ranks (0-1 scale), corrupting the reference
+        # distribution used during predict().
         self.regime_proxy.set_mean_factors(
             self.factor_extractor.mean_factors_train
         )
@@ -1029,8 +1030,11 @@ class SSRFModel:
         # Use only selected features that exist in X
         X_filtered = X[[c for c in all_selected if c in X.columns]]
 
-        # If some features are missing, that's okay - we still use what we have
-        # The PCA will handle the dimension mismatch
+        # CRITICAL FIX: Reindex to match training columns to prevent StandardScaler crash
+        # when selected features from training are missing in the test DataFrame
+        expected_cols = getattr(self, '_selected_feature_names', None)
+        if expected_cols is not None:
+            X_filtered = X_filtered.reindex(columns=expected_cols, fill_value=0)
 
         # Stage 2: Scaling (use transform, not fit_transform - scaler was fitted during training)
         X_scaled = self.scaler.transform(X_filtered)
@@ -1066,22 +1070,33 @@ class SSRFModel:
                 # Detect current regime
                 if y_for_regime is not None:
                     current_regime = self.state.regime_detector.get_current_regime(y_for_regime)
+
+                    # CRITICAL FIX: Compute fresh regime features from current data
+                    # instead of reusing stale training-end values
+                    current_regimes = self.state.regime_detector.detect(y_for_regime)
+                    current_regime_features = create_regime_features(y_for_regime, current_regimes)
+                    last_regime_values = current_regime_features.fillna(0).iloc[-1]
+
+                    for col in current_regime_features.columns:
+                        if col not in X_final.columns:
+                            X_final[col] = [last_regime_values[col]] * n_samples
                 else:
                     current_regime = 'unknown'
 
-                # Get regime features from training state
-                # Apply the SAME regime feature values to ALL samples in the batch
-                if self.state.regime_features is not None:
-                    last_regime_values = self.state.regime_features.iloc[-1]  # Get as Series
-                    for col in self.state.regime_features.columns:
-                        if col not in X_final.columns:
-                            # Repeat the last value for all samples
-                            X_final[col] = [last_regime_values[col]] * n_samples
+                    # Fallback: use training last values if no current data available
+                    if self.state.regime_features is not None:
+                        last_regime_values = self.state.regime_features.iloc[-1]
+                        for col in self.state.regime_features.columns:
+                            if col not in X_final.columns:
+                                X_final[col] = [last_regime_values[col]] * n_samples
 
                 logger.debug(f"Current regime: {current_regime}")
 
             except Exception as e:
                 logger.warning(f"Could not add regime features: {e}")
+
+        # Fill any NaN introduced by regime features before prediction
+        X_final = X_final.fillna(0)
 
         # Use the exact feature names from training
         expected_features = getattr(self, '_training_feature_names', None)
@@ -1115,44 +1130,15 @@ class SSRFModel:
             # Return zero predictions as fallback
             predictions = np.zeros(len(X))
 
-        # Apply prediction scaling
-        if self.config.prediction_scale != 1.0:
-            predictions = predictions * self.config.prediction_scale
-            logger.debug(f"Applied prediction scale: {self.config.prediction_scale}")
-
         return pd.Series(predictions, index=X.index, name='prediction')
-
-    def compute_tc_factor(self, signal_magnitude: float = 1.0) -> float:
-        """
-        Compute transaction cost factor for signal adjustment.
-
-        Args:
-            signal_magnitude: Estimated signal magnitude (0-1 scale)
-
-        Returns:
-            TC factor (0-1) representing signal reduction due to TC
-        """
-        if not self.config.include_tc:
-            return 1.0
-
-        # Get TC rate based on account tier
-        tc_rate = TCConfig.get_tc_rate(self.config.account_tier)
-
-        # TC factor = exp(-turnover * tc_rate * signal_magnitude)
-        # This naturally reduces signal more when:
-        # - Turnover is high
-        # - TC rate is high
-        # - Signal magnitude is high (larger trades)
-        tc_factor = np.exp(-self.config.expected_turnover * tc_rate / 10000 * signal_magnitude)
-
-        # Alternatively, use simple linear reduction
-        # tc_factor = 1.0 - min(self.config.expected_turnover * tc_rate / 10000, 0.5)
-
-        return max(tc_factor, 0.5)  # Don't reduce signal by more than 50%
 
     def predict_with_tc(self, X: pd.DataFrame, y_for_regime: Optional[pd.Series] = None) -> pd.Series:
         """
         Generate TC-adjusted predictions.
+
+        Note: TC adjustment is now done in TCAdjustedWalkForwardBacktester,
+        not in the model. This method exists for backward compatibility
+        but uses the same linear formula as tc_backtesting._adjust_predictions_for_tc().
 
         Args:
             X: Feature DataFrame for prediction
@@ -1167,17 +1153,13 @@ class SSRFModel:
         if not self.config.include_tc:
             return raw_predictions
 
-        # Compute signal magnitude (relative to prediction std)
-        signal_magnitude = raw_predictions.abs() / (raw_predictions.std() + 1e-8)
-        signal_magnitude = signal_magnitude.clip(0, 1)  # Normalize to [0, 1]
+        # Linear TC adjustment (same as tc_backtesting._adjust_predictions_for_tc)
+        tc_rate = TCConfig.get_tc_rate(self.config.account_tier)
+        tc_cost = self.config.expected_turnover * tc_rate / 10000
+        adjustment_factor = 1.0 - tc_cost
 
-        # Apply TC factor to each prediction
-        tc_adjusted = []
-        for i in range(len(raw_predictions)):
-            tc_factor = self.compute_tc_factor(signal_magnitude.iloc[i])
-            tc_adjusted.append(raw_predictions.iloc[i] * tc_factor)
-
-        return pd.Series(tc_adjusted, index=raw_predictions.index, name='tc_adjusted_prediction')
+        adjusted = raw_predictions * adjustment_factor
+        return pd.Series(adjusted.values, index=raw_predictions.index, name='tc_adjusted_prediction')
 
     def predict_high_conviction(
         self,
@@ -1302,26 +1284,83 @@ def evaluate_factor_importance(
     model: SSRFModel
 ) -> pd.DataFrame:
     """
-    Evaluate importance of extracted factors.
+    Evaluate importance of extracted factors and original features.
 
     Args:
         model: Fitted SSRF model
 
     Returns:
-        DataFrame with factor importance metrics
+        DataFrame with feature importance metrics
     """
     if model.state is None:
         return pd.DataFrame()
 
-    importance = pd.DataFrame({
-        'feature': model.state.selected_features.get('factors', []),
-        'coefficient': model.state.coefficients[:len(model.state.selected_features.get('factors', []))]
-    })
+    # Get coefficients from the final model
+    if model.state.coefficients is None:
+        if model.state.final_model is not None and hasattr(model.state.final_model, 'coef_'):
+            coefficients = model.state.final_model.coef_
+        else:
+            return pd.DataFrame()
+    else:
+        coefficients = model.state.coefficients
 
-    importance['abs_coefficient'] = importance['coefficient'].abs()
-    importance = importance.sort_values('abs_coefficient', ascending=False)
+    # Get the exact feature names used during training (stored in fit())
+    # This correctly includes: factor_0, factor_0_interaction, factor_1, factor_1_interaction, ...
+    # and regime features (if use_regime_detection=True)
+    feature_names = getattr(model, '_training_feature_names', None)
 
-    return importance
+    if feature_names is None:
+        # Fallback: reconstruct from known structure
+        # Get factor names and interaction names
+        n_factors = model.state.pca.n_components_ if model.state.pca else 0
+        factor_names = [f'factor_{i}' for i in range(n_factors)]
+
+        # Build factor + interaction names (interleaved as done in create_interaction_terms)
+        factor_interaction_names = []
+        for name in factor_names:
+            factor_interaction_names.extend([name, f'{name}_interaction'])
+
+        # Add regime features if present
+        regime_names = list(model.state.regime_features.columns) if model.state.regime_features else []
+        feature_names = factor_interaction_names + regime_names
+
+    # Create DataFrame with coefficient names
+    if hasattr(model.state.final_model, 'coef_') and model.state.final_model.coef_ is not None:
+        model_coef = np.asarray(model.state.final_model.coef_).flatten()
+
+        # Verify lengths match
+        if len(feature_names) != len(model_coef):
+            logger.warning(
+                f"Feature names ({len(feature_names)}) don't match coefficients ({len(model_coef)}). "
+                f"Using first {min(len(feature_names), len(model_coef))}."
+            )
+            feature_names = feature_names[:len(model_coef)]
+
+        importance = pd.DataFrame({
+            'feature': feature_names,
+            'coefficient': model_coef[:len(feature_names)]
+        })
+        importance['abs_coefficient'] = importance['coefficient'].abs()
+        importance = importance.sort_values('abs_coefficient', ascending=False)
+
+        # Add feature source info
+        n_factors = model.state.pca.n_components_ if model.state.pca else 0
+        factor_names = [f'factor_{i}' for i in range(n_factors)]
+        interaction_names = [f'{name}_interaction' for name in factor_names]
+        original_features = []
+        for feats in model.state.selected_features.values():
+            original_features.extend(feats)
+        regime_names = list(model.state.regime_features.columns) if model.state.regime_features else []
+
+        importance['source'] = importance['feature'].apply(
+            lambda x: 'original' if x in original_features else
+                     ('factor' if x in factor_names else
+                      ('interaction' if x in interaction_names else 'regime'))
+        )
+
+        return importance
+    else:
+        return pd.DataFrame()
 
 
 if __name__ == "__main__":
