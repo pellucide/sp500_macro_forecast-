@@ -1,0 +1,7 @@
+Strategy,Cumulative Return,Annualized Return,Sharpe Ratio,Max Drawdown,Hit Ratio
+Top-3 Sectors,6.4%,1.1%,0.14,-11.3%,53.0%
+Weighted by Signal,12.1%,2.1%,0.24,-12.2%,47.0%
+Predictable Only,-12.3%,-2.4%,-0.32,-20.6%,37.9%
+Long-Short,33.3%,5.4%,0.38,-15.9%,56.1%
+Momentum Rotation,20.8%,3.5%,0.41,-12.4%,48.5%
+SPY (Benchmark),75.5%,10.8%,0.58,-24.8%,65.2%

@@ -1,0 +1,7 @@
+Period,Start,End,Months,Sectors,Data Quality
+Dot-Com Boom,2000-01,2002-10,33,9,⚠️ Partial
+Post Dot-Com,2002-11,2007-09,59,9,⚠️ Partial
+Financial Crisis,2007-10,2009-03,18,9,⚠️ Partial
+Recovery,2009-04,2019-12,129,9,⚠️ Partial
+COVID Crash,2020-01,2020-03,3,9,⚠️ Partial
+Post-COVID Bull,2020-04,2026-05,73,9,⚠️ Partial
