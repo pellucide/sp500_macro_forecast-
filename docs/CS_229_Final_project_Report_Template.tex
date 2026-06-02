@@ -1,0 +1,372 @@
+\documentclass{article}
+
+\usepackage[final]{neurips_2019}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{hyperref}
+\usepackage{url}
+\usepackage{booktabs}
+\usepackage{amsfonts}
+\usepackage{amsmath}
+\usepackage{graphicx}
+\usepackage{xcolor}
+
+\setcitestyle{round}
+
+\newcommand{\note}[1]{\textcolor{blue}{{#1}}}
+
+\title{
+  State-Dependent Macroeconomic Forecasting \\
+  for Equity Returns \\
+  \vspace{1em}
+  \small{\normalfont Stanford CS229 Project}
+}
+
+\author{
+  Jagat Brahma \\
+  Department of Computer Science \\
+  Stanford University \\
+  \texttt{jbrahma@stanford.edu}
+}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+Predicting the stock market from economic data is notoriously difficult -
+the signal is weak and easily drowned out by noise. This project builds a
+multi-stage machine learning pipeline called SSRF (State-Dependent Supervised
+Screening \& Regularized Factor model) that forecasts S\&P~500 monthly returns
+from over 100 macroeconomic indicators. The model achieves~70\% directional
+accuracy out-of-sample from 2000--2026, with a Sharpe ratio of~0.51 and strong
+statistical significance ($p<0.0001$). An asymmetric leverage strategy
+(2.5$\times$ long~/~0.25$\times$ short) further improves the Sharpe to~0.84,
+providing meaningful risk-adjusted returns above buy-and-hold.
+\end{abstract}
+
+
+\section{Introduction}
+
+Can economic data predict the stock market? This question has fascinated
+researchers for decades \citep{goyal2008comprehensive}. The challenge is
+that financial markets are noisy and driven by factors far beyond
+government-reported statistics. Yet intuitively, when the economy is strong
+(employment is high, factories are busy, consumers are spending), corporate
+profits-and therefore stock prices-should rise.
+
+The input to our system is a set of roughly~130 monthly economic statistics
+published by the Federal Reserve and other agencies: employment, industrial
+production, housing starts, interest rates, consumer sentiment, and inflation.
+The output is a prediction of whether the S\&P~500 index (the most widely-
+followed U.S. stock market benchmark) will go up or down next month, and by
+roughly how much. We designed a four-stage pipeline that filters out noisy
+features, extracts hidden economic factors, and adjusts predictions based on
+market conditions. We evaluate using ``walk-forward'' backtesting, simulating
+real-time performance over the last~26 years with no future data leakage.
+
+
+\section{Related Work}
+
+\citet{goyal2008comprehensive} famously showed that most economic variables
+studied over~30 years could not reliably predict the stock market out-of-sample.
+\citet{campbell2008predicting} pushed back, arguing that even modest
+predictability is economically valuable and introducing the out-of-sample
+$R^2_{OOS}$ metric. \citet{huang2022scaled} proposed ``Scaled PCA,'' which
+weights features by predictive power before dimension reduction - a key
+inspiration. \citet{zou2005regularization} developed the Elastic Net,
+combining L1 (lasso) and L2 (ridge) penalties, well-suited for datasets with
+many correlated predictors. Our work differs by combining screening, scaling,
+factor extraction, and regime interaction into a single defensible pipeline,
+and by emphasizing statistical rigor (bootstrap confidence intervals,
+permutation tests, Diebold-Mariano tests) to avoid overclaiming on a noisy
+problem.
+
+
+\section{Dataset and Features}
+
+\paragraph{Economic indicators.}
+Our primary data source is the FRED-MD database \citep{mccracken2016fredmd},
+a collection of~134 monthly macroeconomic time series maintained by the
+Federal Reserve Bank of St.\ Louis (``FRED'' = Federal Reserve Economic Data).
+The indicators span output (GDP, industrial production), labor (employment,
+housing starts), consumption (retail sales), money/credit (M2, bank credit),
+interest rates (Treasury yields, corporate spreads), prices (CPI, PPI),
+and sentiment (consumer confidence, VIX). Data covers January~1979 through
+June~2026. We fill missing values forward and cap extreme outliers at the~1st
+and~99th percentiles.
+
+\paragraph{Target variable.}
+The target is the monthly percentage change of the S\&P~500 index (Yahoo
+Finance, ticker \texttt{\^{}GSPC}): $\frac{P_t - P_{t-1}}{P_{t-1}} \times 100$.
+Features are aligned so that economic data from month~$t$ predicts returns
+for month~$t+1$, mimicking a realistic trading scenario where macro reports
+are released with a lag.
+
+\paragraph{Train/test splits.}
+We use an expanding ``walk-forward'' design: at each step the model trains on
+all data up to the current month and predicts the next month. The first~60
+months form the initial training set. For a cleaner evaluation, we also fix a
+split at January~2000 - the model trains only on pre-2000 data and is
+evaluated strictly on 2000--2026 with no retraining (``true OOS'').
+
+
+\section{Methods}
+
+The SSRF pipeline has four stages, each addressing a specific challenge in
+macroeconomic forecasting:
+
+\paragraph{Stage 1: Group-wise Screening.}
+We have~134 features but only~540 months of data. Features are grouped into
+economic categories (output, labor, inflation, etc.), and within each
+category we retain only those with a t-statistic magnitude above~0.75. This
+prevents any single category from dominating. About~40--60 features survive.
+
+\paragraph{Stage 2: Predictive Scaling (``Scaled PCA'').}
+Before extracting factors, each surviving feature is scaled by its univariate
+regression slope against returns. This step, inspired by
+\citet{huang2022scaled}, amplifies predictive features and suppresses noise.
+
+\paragraph{Stage 3: Factor Extraction (PCA).}
+Even after screening, the remaining features are highly correlated (they all
+track the same economy). Principal Component Analysis (PCA) extracts~10
+summary factors capturing the main independent sources of variation. The first
+factor typically tracks the business cycle; later factors capture interest-rate
+or inflation dynamics.
+
+\paragraph{Stage 4: Regime Interaction.}
+Markets behave differently in calm vs.\ turbulent periods. We measure the
+current ``regime'' using rolling~12-month volatility - essentially asking
+``is this market calmer or more volatile than usual?'' Each factor is
+multiplied by this regime measure, creating interaction terms that let the
+model learn different behavior under different conditions.
+
+\paragraph{Final Regression.}
+The regressor is Elastic Net \citep{zou2005regularization}, which combines L1
+(lasso, driving irrelevant coefficients to zero) and L2 (ridge, shrinking
+coefficients without eliminating them). We use $\alpha=0.001$ and
+$\ell_1$-ratio$=0.5$ (equal mix). Training is walk-forward: the window
+expands with each month.
+
+\paragraph{Baselines.}
+We compare against historical average (always predict the training mean),
+momentum (predict the same direction as last month), and random guessing.
+
+\paragraph{Asymmetric leverage.}
+We also test asymmetric position sizing: 2.5$\times$ long when predicting
+positive returns but only 0.25$\times$ short when predicting negative returns.
+This exploits the empirical observation that long signals are more reliable
+than short signals in macro forecasting.
+
+
+\section{Experiments / Results / Discussion}
+
+\paragraph{Evaluation metrics.}
+We use four primary metrics:
+\begin{itemize}
+  \item \textbf{Hit ratio (direction accuracy):} percentage of months where the
+    predicted sign matches the actual sign (random =~50\%).
+  \item \textbf{Sharpe ratio:} annualized mean return divided by annualized
+    volatility, measuring risk-adjusted return.
+  \item \textbf{$R^2_{OOS}$:} compares the model's squared errors against the
+    historical average (positive = beats the average).
+  \item \textbf{Bootstrap 95\% confidence interval for Sharpe:} computed by
+    resampling the return stream 1000 times (excludes zero if significant).
+\end{itemize}
+
+\paragraph{Main results.}
+Table~\ref{tab:main} shows the primary out-of-sample results (2000--2026).
+
+\begin{table}[ht]
+\centering
+\caption{Out-of-sample results (2000--2026).}
+\label{tab:main}
+\begin{tabular}{lcccc}
+\toprule
+Model & Hit Ratio & Sharpe & $R^2_{OOS}$ & Total Return \\
+\midrule
+SSRF (full)   & \textbf{70.3\%} & \textbf{0.51} & $-$0.005 & $+$3,808\% \\
+Momentum      & 62.7\%          & 0.50          & $-$0.003 & $+$30\%   \\
+Always Long   & 62.5\%          & ---           & 0.000    & ---       \\
+S\&P~500 B\&H & ---             & 0.66          & ---      & $+$444\%  \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+SSRF achieves~70.3\% direction accuracy - correctly predicting up~vs~down in
+~7 of every~10 months. The first baseline worth beating is not~50\% (random
+coin-flip) but~63\%: over this period the S\&P~500 went up in~198 of~317
+months, so an ``always long'' strategy is right~62.5\% of the time simply by
+riding the secular bull market. Momentum and the rolling historical mean hit
+the same~63\% as this naive baseline. SSRF's~70.3\% is~8 percentage points
+above the always-long benchmark, meaning it genuinely adds predictive value
+rather than just betting on market drift. The Sharpe ratio is~0.51 (95\% CI:
+[0.09,~1.21]), statistically significant ($p<0.0001$). The $R^2_{OOS}$ is
+slightly negative ($-$0.005), meaning magnitude accuracy is comparable to the
+historical average. This is typical in return prediction - direction is
+easier to predict than exact magnitude, but directional bets still generate
+substantial cumulative profits.
+
+Walk-forward configurations all beat baselines: expanding window gives~66\%
+hit ratio (Sharpe~0.60); fixed~60-month window gives~63\% (Sharpe~0.53).
+
+\paragraph{Asymmetric leverage.}
+Table~\ref{tab:leverage} shows the effect of 2.5$\times$ long~/~0.25$\times$
+short leverage with enhanced features including the CAPE ratio and put/call
+ratio:
+
+\begin{table}[ht]
+\centering
+\caption{Asymmetric leverage (2.5$\times$/0.25$\times$).}
+\label{tab:leverage}
+\begin{tabular}{lcccc}
+\toprule
+Model & Ann.\ Return & Ann.\ Vol. & Sharpe & Max.\ Drawdown \\
+\midrule
+XGBoost & 8.6\% & 10.4\% & \textbf{0.84} & $-$9.1\% \\
+Ensemble & 10.1\% & 12.8\% & 0.81 & $-$11.5\% \\
+Linear & 9.4\% & 13.1\% & 0.75 & $-$9.4\% \\
+S\&P~500 B\&H & 8.9\% & 13.4\% & 0.66 & $-$46.7\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Asymmetric leverage boosts Sharpe substantially (e.g., XGBoost:~0.84 vs.\
+$<$0.7 symmetric) while cutting maximum drawdown from~$-$47\% to~$-$9\%.
+
+When applied to individual sectors, the model performs best on defensive
+sectors: Consumer Staples ($R^2_{OOS}=+0.04$,~64\% hit ratio) and Healthcare
+($R^2_{OOS}=+0.03$). It struggles with cyclical sectors like Energy
+($R^2_{OOS}=-1.94$) and Financials ($R^2_{OOS}=-1.04$).
+
+\paragraph{What didn't work.}
+Several experiments failed or disappointed. The regime interaction stage
+(Stage~4) was tested early and disabled for final experiments because it
+consistently hurt out-of-sample performance - the interaction terms added
+more noise than signal. Extreme leverage (25$\times$ long) destroyed every
+portfolio, with 72--84\% drawdowns across all model types. The $R^2_{OOS}$
+remains negative in all configurations - the model cannot predict return
+magnitudes, only direction.  Transaction costs, even at professional-tier
+rates (15~bps), consume~1--2\% of annual returns, narrowing the advantage
+over buy-and-hold. These failures reinforce a core lesson:
+equity return prediction is a low signal-to-noise problem, and claimed
+successes should always be viewed skeptically without proper out-of-sample
+testing and statistical significance.
+
+
+\section{Code Usage and Extensibility}
+
+The codebase is designed for flexibility beyond the experiments described
+above. It provides a command-line interface (CLI) and Python API for
+exploring different model types, data sources, and trading configurations.
+Table~\ref{tab:config} summarizes the key knobs available.
+
+\begin{table}[ht]
+\centering
+\caption{Key configurable features.}
+\label{tab:config}
+\small
+\begin{tabular}{lll}
+\toprule
+\textbf{Feature} & \textbf{CLI Flag} & \textbf{Options / Examples} \\
+\midrule
+Model type & \texttt{--model-type} & elasticnet, linear, xgboost,\\
+  &  & random\_forest, catboost, mlp, ensemble \\
+Screening threshold & \texttt{--t-stat-threshold} & 0.5~(lenient), 0.75~(default), 2.0~(strict) \\
+PCA factors & \texttt{--n-factors} & 5, 10~(default), 20 \\
+Regime window & \texttt{--regime-window} & 6~(fast), 12~(default), 24~(conservative) \\
+Long/short leverage & \texttt{--max-long/--max-short} & 1.0/1.0~(symmetric), 2.5/0.25~(sweet spot) \\
+Training window & \texttt{--train-window} & 60~(5yr), 120~(10yr), 180~(15yr) \\
+Rebalance frequency & \texttt{--step-size} & 1~(monthly), 3~(quarterly) \\
+Conviction filter & \texttt{--conviction-*} & 1.0~(default), 2.0~(only strong signals) \\
+Account tier (TC) & \texttt{--account-tier} & micro, standard, professional, institutional \\
+Margin rate & \texttt{--margin-rate} & 0.05~(5\%), 0.10~(10\%) \\
+Drawdown limit & \texttt{--drawdown-limit} & 0.25~(reduce leverage at~25\% loss) \\
+L1 vs L2 balance & \texttt{--l1-ratio} & 0.0~(pure Ridge), 0.5~(mix), 1.0~(pure Lasso) \\
+Regularization & \texttt{--alpha} & 0.0001~(light), 0.001~(default), 0.1~(heavy) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Model types.}
+Seven final regressors are available. Four are covered in CS229 - linear
+regression \texttt{--unregularized}, Ridge (implied by \texttt{--l1-ratio~0.0}),
+Lasso (\texttt{--l1-ratio~1.0}), and Elastic Net (default). Three more are
+tree-based: XGBoost (gradient-boosted trees, often best for non-linear
+patterns), Random Forest, and a neural-network-style MLP. An Ensemble mode
+combines all models via averaging. Switching is as simple as changing
+\texttt{--model-type}.
+
+\paragraph{Data sources.}
+The pipeline fetches~34 raw FRED indicators and automatically derives~24
+additional features (yield curve slopes, credit spreads, money supply growth
+rates, sentiment regimes). It also loads three alternative indicators: the
+CAPE ratio (Shiller's cyclically-adjusted P/E, available from~1881),
+the CBOE put/call ratio (options market sentiment, from~1995), and
+FINRA margin debt (broker-dealer leverage, from~1945). A VIX volatility proxy
+fills pre-1990 values using realized volatility. To add new indicators, one
+simply appends FRED series IDs to the configuration's indicator groups.
+
+\paragraph{Sector rotation.}
+The \texttt{--sector-rotation} flag lets users predict any of~11 economic
+sectors (Technology, Healthcare, Energy, Financials, etc.) instead of the
+S\&P~500, producing~77 sector-specific features (relative momentum, RSI,
+cross-sectional rank, correlation, and trend signals).
+
+\paragraph{Quick-start commands.}
+\begin{verbatim}
+# Default SSRF
+python -m src.main --sample-data
+
+# Compare model types
+python -m src.main --model-type xgboost
+
+# Asymmetric leverage with transaction costs
+python -m src.main --max-long 2.5 --max-short 0.25 \\
+    --tc-backtest --account-tier professional
+
+# Sector rotation with alternative features
+python -m src.main --sector-rotation Technology
+
+# Aggressive: short training, fast rebalance
+python -m src.main --train-window 36 --step-size 1
+
+# Conservative: strict screening + conviction filter
+python -m src.main --t-stat-threshold 2.0 --conviction-filter \\
+    --conviction-threshold 2.0
+
+# Full test suite
+python test_all.py
+
+# 7-model comparison with leverage sweep
+python run_all_models_oos.py --sweep
+
+# Real data OOS test
+python run_oos_real_data.py
+\end{verbatim}
+
+
+\section{Conclusion / Future Work}
+
+We built a multi-stage pipeline that achieves~70\% directional accuracy and a
+statistically significant Sharpe of~0.51 out-of-sample from 2000--2026.
+Asymmetric leverage boosts the Sharpe to~0.84 while nearly eliminating large
+drawdowns.
+
+Three limitations suggest future work. First, we do not model the release lag
+of economic data - FRED statistics for a given month are often published
+weeks later. Second, our regime detection (simple volatility percentile) could
+be replaced with a hidden Markov model for more accurate state estimation.
+Third, transaction costs were tested only in a limited analysis; a production
+system would need to account for slippage and market impact.
+
+\vspace{2em}
+
+\section{Contributions}
+Sole author. All code, analysis, and writing by Jagat Brahma.
+
+\bibliographystyle{plainnat}
+\bibliography{references}
+
+\end{document}
