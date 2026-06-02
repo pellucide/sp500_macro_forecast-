@@ -13,20 +13,10 @@ from datetime import datetime, timedelta
 import warnings
 warnings.filterwarnings('ignore')
 
-# S&P 500 Sector ETFs
-SECTOR_ETFS = {
-    'XLK': 'Technology',
-    'XLF': 'Financials',
-    'XLV': 'Health Care',
-    'XLE': 'Energy',
-    'XLY': 'Consumer Discretionary',
-    'XLP': 'Consumer Staples',
-    'XLI': 'Industrials',
-    'XLB': 'Materials',
-    'XLU': 'Utilities',
-    'XLRE': 'Real Estate',
-    'XLC': 'Communication Services'
-}
+from src.config import SECTOR_ETFS_BY_TICKER
+
+# S&P 500 Sector ETFs — shared with other scripts via src.config
+SECTOR_ETFS = SECTOR_ETFS_BY_TICKER
 
 def fetch_sector_data(start_date='1990-01-01', end_date=None):
     """Fetch sector ETF data from yfinance."""

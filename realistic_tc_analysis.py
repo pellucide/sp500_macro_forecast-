@@ -4,17 +4,15 @@ Realistic Transaction Cost Analysis for Equal-Weight Strategy
 import yfinance as yf
 import pandas as pd
 import numpy as np
+from src.config import DataConfig
 
 print('=' * 80)
 print('REALISTIC TRANSACTION COST ANALYSIS')
 print('=' * 80)
 
-# Load data
-sector_etfs = {
-    'Materials': 'XLB', 'Energy': 'XLE', 'Financials': 'XLF',
-    'Industrials': 'XLI', 'Technology': 'XLK', 'Consumer_Staples': 'XLP',
-    'Health_Care': 'XLV', 'Utilities': 'XLU', 'Consumer_Discretionary': 'XLY',
-}
+# Load data — shared sector list from config (exclude benchmark SPY)
+sector_etfs = {name: ticker for name, ticker in DataConfig.SECTOR_ETFS.items()
+               if ticker != 'SPY'}
 
 all_prices = {}
 for sector, ticker in sector_etfs.items():

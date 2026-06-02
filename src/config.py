@@ -185,6 +185,11 @@ CITATIONS = {
 }
 
 # =============================================================================
+# Sector ETF mappings (shared by all analysis scripts)
+# =============================================================================
+SECTOR_ETFS_BY_TICKER = {ticker: name for name, ticker in DataConfig.SECTOR_ETFS.items()}
+
+# =============================================================================
 # Export all configurations
 # =============================================================================
 __all__ = [
@@ -197,5 +202,6 @@ __all__ = [
     "DATA_DIR",
     "MODELS_DIR",
     "BACKTEST_DIR",
-    "NOTEBOOKS_DIR"
+    "NOTEBOOKS_DIR",
+    "SECTOR_ETFS_BY_TICKER"
 ]
