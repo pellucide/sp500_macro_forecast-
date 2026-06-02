@@ -389,7 +389,7 @@ def _simulate_asymmetric_portfolio(
             pos = raw_positions[i]
             # Check drawdown for levered long positions
             if pos > 1.0:
-                excess = max(0.0, (cumulative - peak) / peak)
+                excess = max(0.0, (peak - cumulative) / peak)
                 excess_ratio = excess / drawdown_limit
                 if excess_ratio > 0:
                     # Linear reduction: at 1x limit = full levered exposure

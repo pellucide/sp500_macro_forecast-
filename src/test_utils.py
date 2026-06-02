@@ -46,6 +46,11 @@ def calc_metrics(preds, actual, annualization=12):
     """
     Calculate trading metrics with consistent pred[t] vs actual[t] alignment.
 
+    Converts predictions to direction signals for fair comparison:
+    P&L = sign(pred) * actual (in %)
+    This ensures SSRF (real values), momentum (±1), and random (±1)
+    are all compared on the same basis.
+
     Returns dict with hit_ratio, total_pnl, ann_return, ann_vol, sharpe, r2_oos.
     """
     preds = np.asarray(preds)
@@ -54,10 +59,12 @@ def calc_metrics(preds, actual, annualization=12):
     direction_correct = np.sum(np.sign(preds) == np.sign(actual))
     hit_ratio = direction_correct / len(actual) * 100
 
-    pnl = preds * actual
-    total_pnl = np.sum(pnl)
-    ann_return = np.mean(pnl) * annualization * 100
-    ann_vol = np.std(pnl) * np.sqrt(annualization) * 100
+    # Use direction signal for fair cross-strategy comparison
+    positions = np.sign(preds)
+    pnl = positions * actual  # P&L in % per period
+    total_pnl = np.sum(pnl)   # cumulative P&L in %
+    ann_return = np.mean(pnl) * annualization  # %/year
+    ann_vol = np.std(pnl) * np.sqrt(annualization)  # %/year volatility
     sharpe = ann_return / ann_vol if ann_vol > 0 else 0
 
     ss_res = np.sum((actual - preds) ** 2)

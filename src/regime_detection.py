@@ -535,6 +535,7 @@ class MarketRegimeDetector:
         # Count consecutive regimes
         current_regime = regimes.iloc[0]
         current_count = 1
+        i = 0  # ensure `i` is defined for final-regime check below
 
         for i in range(1, len(regimes)):
             if regimes.iloc[i] == current_regime:

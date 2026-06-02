@@ -314,91 +314,10 @@ class FREDDataLoader:
 
     def fetch_sector_returns(self, start_date: str, end_date: Optional[str] = None) -> pd.DataFrame:
         """
-        Fetch sector ETF returns from FRED for sector rotation prediction.
-
-        Args:
-            start_date: Start date
-            end_date: End date
-
-        Returns:
-            pd.DataFrame with sector relative returns (sector - SP500)
+        Fetch sector ETF returns for sector rotation prediction.
+        (Delegates to yfinance since FRED does not serve ETF price data.)
         """
-        if self.fred is None:
-            raise ValueError("FRED API key required")
-
-        # Sector ETF tickers available on FRED
-        sector_etfs = {
-            'XLB': 'Materials',      # Materials
-            'XLE': 'Energy',         # Energy
-            'XLF': 'Financials',      # Financials
-            'XLI': 'Industrials',     # Industrials
-            'XLK': 'Technology',      # Technology
-            'XLU': 'Utilities',       # Utilities
-            'XLV': 'Healthcare',      # Healthcare
-            'XLP': 'ConsumerStaples', # Consumer Staples
-            'XLY': 'ConsumerDiscretionary',  # Consumer Discretionary
-            'XLRE': 'RealEstate',     # Real Estate
-            'XLC': 'CommunicationServices'  # Communication Services
-        }
-
-        all_returns = {}
-
-        for ticker, name in sector_etfs.items():
-            try:
-                self._rate_limit()
-
-                # Fetch sector ETF price
-                sector_data = self.fred.get_series(
-                    ticker,
-                    start_date=start_date,
-                    end_date=end_date
-                )
-
-                # Convert to monthly returns
-                sector_df = pd.DataFrame(sector_data)
-                sector_df.index = pd.to_datetime(sector_df.index)
-                sector_monthly = sector_df.resample('ME').last().iloc[:, 0]
-                sector_returns = sector_monthly.pct_change().dropna()
-                sector_returns.name = name
-
-                all_returns[name] = sector_returns
-                self._fetch_count += 1
-                self._last_fetch_time = time.time()
-
-            except Exception as e:
-                logger.warning(f"Failed to fetch {ticker}: {e}")
-                continue
-
-        if not all_returns:
-            logger.error("No sector data fetched")
-            return pd.DataFrame()
-
-        # Combine all sector returns
-        sector_df = pd.DataFrame(all_returns)
-
-        # Fetch SP500 for relative returns
-        try:
-            spx = self.fred.get_series("SP500", start_date=start_date, end_date=end_date)
-            spx_df = pd.DataFrame(spx)
-            spx_df.index = pd.to_datetime(spx_df.index)
-            spx_monthly = spx_df.resample('ME').last().iloc[:, 0]
-            spx_returns = spx_monthly.pct_change().dropna()
-            spx_returns.name = 'SP500'
-
-            # Align with sector data
-            common_idx = sector_df.index.intersection(spx_returns.index)
-            sector_df = sector_df.loc[common_idx]
-            spx_returns = spx_returns.loc[common_idx]
-
-            # Calculate relative returns (sector - SP500)
-            relative_returns = sector_df.sub(spx_returns, axis=0)
-
-            logger.info(f"Fetched {len(relative_returns.columns)} sector relative returns")
-            return relative_returns
-
-        except Exception as e:
-            logger.error(f"Failed to fetch SP500 for relative returns: {e}")
-            return sector_df
+        return self.fetch_sector_returns_yfinance(start_date=start_date, end_date=end_date)
 
     def fetch_sector_returns_yfinance(
         self,
