@@ -4,7 +4,7 @@
 
 set -e
 
-NAME="CS_229_Final_project_Report_Template"
+NAME="CS_229_Final_project_Report_JagatBrahma"
 
 pdflatex -interaction=nonstopmode "$NAME.tex"
 bibtex "$NAME"

@@ -140,5 +140,4 @@ model = ElasticNet(alpha=0.001, l1_ratio=0.5)
 ---
 
 *Last Updated: 2026-06-01*
-*Corrected by: MiniMax Agent*
 *Key Finding: SSRF WORKS with proper alignment and low regularization*
