@@ -42,6 +42,14 @@ MARGIN_RATE = 0.05  # annual margin interest rate
 DRAWDOWN_LIMIT = 0.25  # drawdown threshold for leverage reduction (0.0-0.5)
 STEP_SIZE = 3  # default step size, overridden by CLI args
 
+# Leverage combos for --sweep mode (max_long, max_short)
+LEVERAGE_COMBOS = [
+    (1.0, 1.0),
+    (1.5, 0.5),
+    (1.75, 0.25),
+    (2.5, 0.25),
+]
+
 
 def load_forward_returns(horizon=3):
     """Load S&P 500 prices and compute horizon-month forward returns at monthly frequency.
@@ -214,6 +222,100 @@ def print_results(results):
     print(f"\nBenchmark cumulative 3-month return: {results[0]['benchmark_cum']:.2%}")
 
 
+def print_sweep_results(all_results, models_run, bh_ann, bh_sharpe):
+    """Print cross-tabulated sweep results with B&H comparison."""
+    # Group results by leverage combo
+    by_combo = {}
+    for r in all_results:
+        key = f"{r['max_long']:.2f}/{r['max_short']:.2f}"
+        by_combo.setdefault(key, {})[r['model']] = r
+
+    print("=" * 130)
+    print("LEVERAGE SWEEP — CROSS-TAB RESULTS")
+    print(f"Run: {datetime.now()} | Models: {', '.join(models_run)}")
+    print(f"Target: {FORWARD_HORIZON}-month forward return | Step: {STEP_SIZE}m")
+    print("=" * 130)
+
+    # AnnRet table
+    print(f"\n--- Annualized Return ---")
+    header = f"{'L/S':<12}"
+    for m in models_run:
+        header += f" {m:<16}"
+    header += f" {'B&H SP500':<12}"
+    print(header)
+    print("-" * len(header))
+    for combo, models in by_combo.items():
+        row = f"{combo:<12}"
+        for m in models_run:
+            r = models.get(m)
+            row += f" {r['ann_ret']:>7.2%}    " if r else f" {'FAILED':>7}    "
+        row += f" {bh_ann:>7.2%}"
+        print(row)
+
+    # Sharpe table
+    print(f"\n--- Sharpe Ratio ---")
+    header = f"{'L/S':<12}"
+    for m in models_run:
+        header += f" {m:<16}"
+    header += f" {'B&H SP500':<12}"
+    print(header)
+    print("-" * len(header))
+    for combo, models in by_combo.items():
+        row = f"{combo:<12}"
+        for m in models_run:
+            r = models.get(m)
+            row += f" {r['sharpe']:>7.4f}    " if r else f" {'FAILED':>7}    "
+        row += f" {bh_sharpe:>7.4f}"
+        print(row)
+
+    # MaxDD table
+    print(f"\n--- Max Drawdown ---")
+    header = f"{'L/S':<12}"
+    for m in models_run:
+        header += f" {m:<16}"
+    header += f" {'B&H SP500':<12}"
+    print(header)
+    print("-" * len(header))
+    for combo, models in by_combo.items():
+        row = f"{combo:<12}"
+        for m in models_run:
+            r = models.get(m)
+            row += f" {r['max_dd']:>7.2%}    " if r else f" {'FAILED':>7}    "
+        row += f" {'N/A':>7}"
+        print(row)
+
+    # Hit ratio table
+    print(f"\n--- Hit Ratio ---")
+    header = f"{'L/S':<12}"
+    for m in models_run:
+        header += f" {m:<16}"
+    print(header)
+    print("-" * len(header))
+    for combo, models in by_combo.items():
+        row = f"{combo:<12}"
+        for m in models_run:
+            r = models.get(m)
+            row += f" {r['hit_ratio']:>6.1%}     " if r else f" {'FAILED':>7}    "
+        print(row)
+
+    # R² OOS table
+    print(f"\n--- R² OOS ---")
+    header = f"{'L/S':<12}"
+    for m in models_run:
+        header += f" {m:<16}"
+    print(header)
+    print("-" * len(header))
+    for combo, models in by_combo.items():
+        row = f"{combo:<12}"
+        for m in models_run:
+            r = models.get(m)
+            row += f" {r['r2_oos']:>7.4f}    " if r else f" {'FAILED':>7}    "
+        print(row)
+
+    print(f"\nB&H SP500: AnnRet={bh_ann:.2%}, Sharpe={bh_sharpe:.4f}")
+    print(f"Note: vs B&H comparisons use excess AnnRet (model - B&H)")
+
+
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description='Run OOS comparison across all model types')
@@ -228,44 +330,103 @@ if __name__ == "__main__":
                         help=f'Drawdown limit for leverage reduction 0.0-0.5 (default: {DRAWDOWN_LIMIT})')
     parser.add_argument('--step-size', type=int, default=3,
                         help=f'Walk-forward step in months (default: 3)')
+    parser.add_argument('--sweep', action='store_true',
+                        help='Run leverage sweep across all combos and models')
     args = parser.parse_args()
 
     STEP_SIZE = args.step_size  # noqa: F811 — re-bind module-level constant
 
     models_to_run = [m for m in MODEL_TYPES if m in args.models] if args.models else MODEL_TYPES
 
-    print(f"Models to run: {', '.join(models_to_run)}")
-    print(f"Target: {FORWARD_HORIZON}-month forward return, monthly frequency")
-    print(f"Step size: {args.step_size} month(s) (rebalance every {args.step_size} month(s))")
-    print(f"Position sizing: max_long={args.max_long}, max_short={args.max_short}")
-    print(f"Margin: {args.margin_rate:.1%}, drawdown_limit={args.drawdown_limit}")
-    print()
+    if args.sweep:
+        # Sweep mode: run all leverage combos across all models
+        all_results = []
+        n_total = len(LEVERAGE_COMBOS) * len(models_to_run)
+        n_done = 0
 
-    all_results = []
-    for model_type in models_to_run:
-        print(f"\n{'='*70}")
-        print(f"Running: {model_type}")
-        print(f"{'='*70}")
-        sys.stdout.flush()
-        try:
-            result = run_model(
-                model_type,
-                step_size=args.step_size,
-                max_long=args.max_long,
-                max_short=args.max_short,
-                margin_rate=args.margin_rate,
-                drawdown_limit=args.drawdown_limit,
-            )
-            all_results.append(result)
-            print(f"  {model_type}: R² OOS={result['r2_oos']:.4f}, "
-                  f"Hit={result['hit_ratio']:.1%}, Sharpe={result['sharpe']:.4f}, "
-                  f"Time={result['time_s']:.1f}s")
+        print("=" * 100)
+        print("LEVERAGE SWEEP — ALL MODELS × ALL COMBOS")
+        print(f"Models: {', '.join(models_to_run)}")
+        print(f"Combos: {', '.join(f'{ml:.2f}/{ms:.2f}' for ml, ms in LEVERAGE_COMBOS)}")
+        print(f"Total runs: {n_total}")
+        print(f"Target: {FORWARD_HORIZON}-month forward return")
+        print(f"Step size: {args.step_size} month(s)")
+        print("=" * 100)
+
+        for max_long, max_short in LEVERAGE_COMBOS:
+            for model_type in models_to_run:
+                n_done += 1
+                label = f"{max_long:.2f}/{max_short:.2f}"
+                print(f"\n[{n_done}/{n_total}] {model_type} @ {label}...", end=" ")
+                sys.stdout.flush()
+                try:
+                    result = run_model(
+                        model_type,
+                        step_size=args.step_size,
+                        max_long=max_long,
+                        max_short=max_short,
+                        margin_rate=args.margin_rate,
+                        drawdown_limit=args.drawdown_limit,
+                    )
+                    result['max_long'] = max_long
+                    result['max_short'] = max_short
+                    all_results.append(result)
+                    print(f"R²={result['r2_oos']:.4f} Hit={result['hit_ratio']:.1%} "
+                          f"Sharpe={result['sharpe']:.4f} ({result['time_s']:.1f}s)")
+                except Exception as e:
+                    print(f"FAILED - {e}")
+                    import traceback
+                    traceback.print_exc()
+                sys.stdout.flush()
+
+        # Compute B&H from 3-month forward returns
+        _, target = load_forward_returns(FORWARD_HORIZON)
+        if target is not None and len(target) > 0:
+            bh_cum = (1 + target.values).prod() - 1
+            n_years = len(target) / 12
+            bh_ann = (1 + bh_cum) ** (1 / n_years) - 1
+            bh_vol = target.std() * np.sqrt(12 / FORWARD_HORIZON)
+            bh_sharpe = bh_ann / bh_vol if bh_vol > 0 else 0
+        else:
+            bh_ann = 0.09
+            bh_sharpe = 0.66
+
+        print()
+        print_sweep_results(all_results, models_to_run, bh_ann, bh_sharpe)
+    else:
+        # Normal mode: single leverage combo
+        print(f"Models to run: {', '.join(models_to_run)}")
+        print(f"Target: {FORWARD_HORIZON}-month forward return, monthly frequency")
+        print(f"Step size: {args.step_size} month(s) (rebalance every {args.step_size} month(s))")
+        print(f"Position sizing: max_long={args.max_long}, max_short={args.max_short}")
+        print(f"Margin: {args.margin_rate:.1%}, drawdown_limit={args.drawdown_limit}")
+        print()
+
+        all_results = []
+        for model_type in models_to_run:
+            print(f"\n{'='*70}")
+            print(f"Running: {model_type}")
+            print(f"{'='*70}")
             sys.stdout.flush()
-        except Exception as e:
-            print(f"  {model_type}: FAILED - {e}", file=sys.stderr)
-            import traceback
-            traceback.print_exc()
-            sys.stderr.flush()
+            try:
+                result = run_model(
+                    model_type,
+                    step_size=args.step_size,
+                    max_long=args.max_long,
+                    max_short=args.max_short,
+                    margin_rate=args.margin_rate,
+                    drawdown_limit=args.drawdown_limit,
+                )
+                all_results.append(result)
+                print(f"  {model_type}: R² OOS={result['r2_oos']:.4f}, "
+                      f"Hit={result['hit_ratio']:.1%}, Sharpe={result['sharpe']:.4f}, "
+                      f"Time={result['time_s']:.1f}s")
+                sys.stdout.flush()
+            except Exception as e:
+                print(f"  {model_type}: FAILED - {e}", file=sys.stderr)
+                import traceback
+                traceback.print_exc()
+                sys.stderr.flush()
 
-    print()
-    print_results(all_results)
+        print()
+        print_results(all_results)
