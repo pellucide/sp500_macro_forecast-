@@ -512,7 +512,7 @@ def main(args=None):
     # Model options
     parser.add_argument('--train-window', type=int, default=60,
                         help='Initial training window (months)')
-    parser.add_argument('--t-stat-threshold', type=float, default=1.5,
+    parser.add_argument('--t-stat-threshold', type=float, default=0.75,
                         help='T-statistic threshold for screening')
     parser.add_argument('--regime-window', type=int, default=12,
                         help='Regime proxy window (months)')

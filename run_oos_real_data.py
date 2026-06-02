@@ -415,7 +415,7 @@ def run_oos_test(model_type='elasticnet', step_size=3, train_window=120, n_facto
     
     # Configure SSRF model
     config = SSRFConfig(
-        t_stat_threshold=1.5,
+        t_stat_threshold=0.75,
         n_factors=n_factors,
         regime_window=12,
         model_type=model_type,

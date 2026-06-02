@@ -88,7 +88,7 @@ class ModelConfig:
     """Configuration for SSRF model architecture"""
 
     # Stage 1: Group-wise supervised screening
-    SCREENING_T_STAT_THRESHOLD = 0.5  # Balance for feature selection
+    SCREENING_T_STAT_THRESHOLD = 0.75  # Balance for feature selection
 
     # Stage 2: Predictive scaling
     USE_PREDICTIVE_SCALING = True

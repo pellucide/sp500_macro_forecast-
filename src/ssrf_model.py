@@ -131,7 +131,7 @@ class GroupwiseScreen:
     Retains predictors with univariate t-statistics above threshold θ.
     """
 
-    def __init__(self, t_stat_threshold: float = 1.5):
+    def __init__(self, t_stat_threshold: float = 0.75):
         """
         Initialize screen.
 
@@ -1383,7 +1383,7 @@ if __name__ == "__main__":
     }
 
     # Initialize and fit model
-    config = SSRFConfig(t_stat_threshold=1.5, n_factors=5)
+    config = SSRFConfig(t_stat_threshold=0.75, n_factors=5)
     model = SSRFModel(config)
 
     # Split data
