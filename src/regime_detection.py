@@ -354,15 +354,23 @@ class HiddenMarkovRegimeDetector:
         # Classify states based on characteristics
         # Sort by mean return (descending)
         sorted_states = sorted(state_stats.items(), key=lambda x: x[1]['mean'], reverse=True)
+        n_states = len(sorted_states)
 
         regime_mapping = {}
         for rank, (state, stats) in enumerate(sorted_states):
             if rank == 0:
                 regime_mapping[state] = RegimeType.BULL.value
-            elif rank == len(sorted_states) - 1:
+            elif rank == n_states - 1:
                 regime_mapping[state] = RegimeType.BEAR.value
-            else:
+            elif n_states == 3:
+                # Only use consolidation label for 3-regime case
                 regime_mapping[state] = RegimeType.CONSOLIDATION.value
+            else:
+                # For n != 3 regimes, label intermediate states by volatility
+                # High volatility intermediate states closer to BEAR behavior
+                vol = stats['std']
+                vol_threshold = np.mean([sorted_states[0][1]['std'], sorted_states[-1][1]['std']])
+                regime_mapping[state] = RegimeType.BEAR.value if vol > vol_threshold else RegimeType.BULL.value
 
         return regime_mapping
 
@@ -566,6 +574,20 @@ class MarketRegimeDetector:
 
                 current_regime = regimes.iloc[i]
                 current_count = 1
+
+        # Check if final regime was too short (loop only checks on regime transitions)
+        if current_count < self.config.min_regime_duration:
+            # Find previous different regime to merge with
+            prev_regime = None
+            for j in range(i - current_count - 1, -1, -1):
+                if regimes.iloc[j] != current_regime:
+                    prev_regime = regimes.iloc[j]
+                    break
+
+            # Replace short final regime with previous regime
+            if prev_regime:
+                for k in range(i - current_count, i + 1):
+                    smoothed.iloc[k] = prev_regime
 
         return smoothed
 

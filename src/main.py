@@ -153,7 +153,11 @@ def load_data(env: dict, args: argparse.Namespace) -> tuple:
     # Process data
     processor = DataProcessor()
     indicators = processor.handle_missing_values(indicators, method='ffill')
-    indicators = processor.winsorize_outliers(indicators)
+    # CRITICAL FIX: Removed full-sample winsorization to prevent look-ahead bias.
+    # Winsorization bounds were computed using the entire dataset (including test
+    # period), leaking future information into training. If needed, winsorization
+    # should be applied per training window inside the walk-forward loop.
+    # indicators = processor.winsorize_outliers(indicators)
 
     # For sample data, we already have groups from generate_sample_data
     # For FRED data, create groups from indicator categories
@@ -511,8 +515,8 @@ def main(args=None):
                         help='Elastic Net alpha')
     parser.add_argument('--l1-ratio', type=float, default=0.5,
                         help='Elastic Net L1 ratio')
-    parser.add_argument('--prediction-scale', type=float, default=10.0,
-                        help='Scale factor for predictions (default: 10.0)')
+    parser.add_argument('--prediction-scale', type=float, default=1.0,
+                        help='Scale factor for predictions (default: 1.0, deprecated)')
     parser.add_argument('--no-cv', action='store_true',
                         help='Disable cross-validation for regularization')
     parser.add_argument('--unregularized', action='store_true',
