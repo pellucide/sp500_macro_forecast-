@@ -378,12 +378,12 @@ class WalkForwardBacktester:
             Portfolio returns
         """
         positions = np.sign(signals.values)
-        # Scale position to [-1, 1] based on signal magnitude
-        max_signal = signals.abs().max()
-        if max_signal > 0:
-            positions = positions * (signals.abs() / max_signal)
-        else:
-            positions = np.zeros(len(signals))
+        # Scale position by signal magnitude using expanding max
+        # FIXED: Use expanding max to prevent look-ahead bias.
+        # Original used signals.abs().max() over the full test period,
+        # leaking future signal magnitudes into early position sizing.
+        max_signal = signals.abs().expanding().max().clip(lower=1e-8)
+        positions = positions * (signals.abs() / max_signal.values)
 
         return pd.Series(
             positions * actual_returns.values,

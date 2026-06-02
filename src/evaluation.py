@@ -213,10 +213,11 @@ class MetricsCalculator:
         """
         positions = np.sign(signals.values)
 
-        # Scale by signal magnitude
-        max_signal = np.abs(signals.values).max()
-        if max_signal > 0:
-            positions = positions * (np.abs(signals.values) / max_signal)
+        # FIXED: Expanding max to prevent look-ahead bias.
+        # Original used np.abs(signals.values).max() over the full test period,
+        # leaking future signal magnitudes into early position sizing.
+        max_signal = np.maximum.accumulate(np.abs(signals.values)).clip(min=1e-8)
+        positions = positions * (np.abs(signals.values) / max_signal)
 
         return pd.Series(
             positions * actual.values,

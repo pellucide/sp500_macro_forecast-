@@ -248,15 +248,18 @@ class TCAdjustedWalkForwardBacktester:
         Returns:
             Filtered predictions (zeroed out where conviction is low)
         """
-        # Compute conviction as signal strength
-        pred_std = predictions.std()
-        pred_mean = predictions.abs().mean()
+        # Compute conviction as signal strength relative to past signals only
+        # FIXED: Use expanding std to prevent look-ahead bias.
+        # Original used predictions.std() over the full test period,
+        # leaking future signal magnitude info into early conviction scores.
+        # At time t, only signals[0..t-1] are available for computing std.
+        expanding_std = predictions.abs().expanding().std().shift(1)
+        # For the first prediction, use its absolute value as the std estimate
+        expanding_std.iloc[0] = max(predictions.abs().iloc[0], 1e-8)
+        # Fill any NaN from insufficient samples expanding forward
+        expanding_std = expanding_std.fillna(method='ffill')
 
-        if pred_std > 0:
-            # Conviction = |signal| / rolling std (z-score style)
-            conviction = predictions.abs() / pred_std
-        else:
-            conviction = predictions.abs() / max(pred_mean, 1e-6)
+        conviction = predictions.abs() / expanding_std.clip(lower=1e-8)
 
         # Create filtered predictions
         filtered = predictions.copy()
@@ -316,11 +319,11 @@ class TCAdjustedWalkForwardBacktester:
         """
         # Use same position calculation as backtesting._simulate_portfolio()
         positions = np.sign(predictions.values)
-        max_signal = np.abs(predictions.values).max()
-        if max_signal > 0:
-            positions = positions * (np.abs(predictions.values) / max_signal)
-        else:
-            positions = np.zeros(len(predictions))
+        # FIXED: Expanding max to prevent look-ahead bias.
+        # Original used np.abs(predictions.values).max() over the full test period,
+        # leaking future signal magnitudes into early position sizing.
+        max_signal = np.maximum.accumulate(np.abs(predictions.values)).clip(min=1e-8)
+        positions = positions * (np.abs(predictions.values) / max_signal)
 
         gross_returns = pd.Series(
             positions * actual_returns.values,
