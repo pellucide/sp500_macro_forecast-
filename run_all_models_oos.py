@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python3.9
 """
 Run OOS walk-forward tests for ALL model types using 3-month forward returns.
 Target = 3-month forward S&P 500 return, predicted monthly from FRED-MD indicators.
