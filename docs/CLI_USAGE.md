@@ -12,7 +12,7 @@ This document explains how to use the command line arguments to configure and ru
 cd /workspace/sp500_macro_forecast
 
 # Run with sample data (fastest)
-python -m src.main --use-sample-data
+python -m src.main --sample-data
 
 # Run with real FRED data
 python -m src.main
@@ -29,7 +29,7 @@ python -m src.main --tc-backtest --account-tier professional
 
 ```bash
 # Default: ElasticNet (SSRF with regularized regression)
-python -m src.main --use-sample-data
+python -m src.main --sample-data
 
 # Linear Regression (no regularization - good for small datasets)
 python -m src.main --model-type linear --unregularized
@@ -64,13 +64,13 @@ python -m src.main --model-type ensemble
 
 ```bash
 # Use generated sample data (no API key needed)
-python -m src.main --use-sample-data
+python -m src.main --sample-data
 
 # Use real FRED data (requires API key in config.py)
 python -m src.main
 
 # Custom sample data parameters
-python -m src.main --use-sample-data --n-periods 500 --n-indicators 100
+python -m src.main --sample-data --n-periods 500 --n-indicators 100
 ```
 
 ### Date Range
@@ -254,7 +254,7 @@ python -m src.main --verbose
 ### Example 1: Basic SSRF
 
 ```bash
-python -m src.main --use-sample-data
+python -m src.main --sample-data
 ```
 
 ### Example 2: XGBoost with Transaction Costs
@@ -332,7 +332,7 @@ pip install -r requirements.txt
 
 Either:
 1. Set FRED_API_KEY in `src/config.py`
-2. Use sample data: `--use-sample-data`
+2. Use sample data: `--sample-data`
 
 ### "Zero coefficients"
 
@@ -378,7 +378,7 @@ python -m src.main --help
 
 Output:
 ```
-usage: main.py [-h] [--use-sample-data] [--n-periods N_PERIODS]
+usage: main.py [-h] [--sample-data] [--n-periods N_PERIODS]
               [--n-indicators N_INDICATORS] [--n-factors N_FACTORS]
               [--start-date START_DATE] [--end-date END_DATE]
               [--seed SEED] [--sector-rotation SECTOR_ROTATION]

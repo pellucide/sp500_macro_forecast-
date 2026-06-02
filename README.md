@@ -34,7 +34,7 @@ sp500_macro_forecast/
 
 ```bash
 pip install -r requirements.txt
-python -m src.main --use-sample-data
+python -m src.main --sample-data
 ```
 
 For cached FRED data (no API key needed):
