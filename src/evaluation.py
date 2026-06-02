@@ -22,6 +22,10 @@ class EvaluationMetrics:
     mae: float
     mape: float
     hit_ratio: float
+    n_pos: int          # number of positive (long) predictions
+    n_neg: int          # number of negative (short) predictions
+    pos_accuracy: float # accuracy on positive predictions
+    neg_accuracy: float # accuracy on negative predictions
     sharpe_ratio: float
     sortino_ratio: float
     calmar_ratio: float
@@ -114,6 +118,20 @@ class MetricsCalculator:
         # Direction accuracy
         hit_ratio = self._hit_ratio(act, pred)
 
+        # Direction breakdown: positive vs negative prediction accuracy
+        pos_mask = pred > 0
+        neg_mask = pred < 0
+        n_pos = int(pos_mask.sum())
+        n_neg = int(neg_mask.sum())
+        if n_pos > 0:
+            pos_accuracy = float((np.sign(act[pos_mask]) == 1).mean())
+        else:
+            pos_accuracy = 0.0
+        if n_neg > 0:
+            neg_accuracy = float((np.sign(act[neg_mask]) == -1).mean())
+        else:
+            neg_accuracy = 0.0
+
         # Return series for portfolio metrics
         portfolio_returns = self._create_portfolio_returns(pred, act)
         bench_returns = self._create_portfolio_returns(bench, act) if bench is not None else None
@@ -143,6 +161,10 @@ class MetricsCalculator:
             mae=mae,
             mape=mape,
             hit_ratio=hit_ratio,
+            n_pos=n_pos,
+            n_neg=n_neg,
+            pos_accuracy=pos_accuracy,
+            neg_accuracy=neg_accuracy,
             sharpe_ratio=sharpe,
             sortino_ratio=sortino,
             calmar_ratio=calmar,
@@ -585,6 +607,10 @@ def generate_report(
             'mse': metrics.mse,
             'mae': metrics.mae,
             'hit_ratio': metrics.hit_ratio,
+            'n_pos': metrics.n_pos,
+            'n_neg': metrics.n_neg,
+            'pos_accuracy': metrics.pos_accuracy,
+            'neg_accuracy': metrics.neg_accuracy,
             'sharpe_ratio': metrics.sharpe_ratio,
             'sortino_ratio': metrics.sortino_ratio,
             'calmar_ratio': metrics.calmar_ratio,
@@ -640,7 +666,15 @@ def generate_report(
     report.append("-" * 40)
     hit_ratio = m.get('hit_ratio')
     if hit_ratio is not None:
-        report.append(f"Hit Ratio:                  {hit_ratio:.2%}")
+        report.append(f"Hit Ratio (overall):        {hit_ratio:.2%}")
+    n_pos = m.get('n_pos', 0)
+    n_neg = m.get('n_neg', 0)
+    if n_pos > 0:
+        pos_acc = m.get('pos_accuracy', 0)
+        report.append(f"Long  accuracy:  {pos_acc:.2%}  ({n_pos} predictions)")
+    if n_neg > 0:
+        neg_acc = m.get('neg_accuracy', 0)
+        report.append(f"Short accuracy:  {neg_acc:.2%}  ({n_neg} predictions)")
 
     report.append("\n## Risk-Adjusted Performance")
     report.append("-" * 40)

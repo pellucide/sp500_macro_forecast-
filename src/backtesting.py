@@ -305,6 +305,20 @@ class WalkForwardBacktester:
         correct_direction = np.sign(predictions) == np.sign(actual)
         metrics['hit_ratio'] = correct_direction.mean()
 
+        # Direction breakdown: positive vs negative prediction accuracy
+        pos_mask = predictions > 0
+        neg_mask = predictions < 0
+        metrics['n_pos'] = int(pos_mask.sum())
+        metrics['n_neg'] = int(neg_mask.sum())
+        if metrics['n_pos'] > 0:
+            metrics['pos_accuracy'] = float((np.sign(actual[pos_mask]) == 1).mean())
+        else:
+            metrics['pos_accuracy'] = 0.0
+        if metrics['n_neg'] > 0:
+            metrics['neg_accuracy'] = float((np.sign(actual[neg_mask]) == -1).mean())
+        else:
+            metrics['neg_accuracy'] = 0.0
+
         # Portfolio simulation
         portfolio_returns = self._simulate_portfolio(predictions, actual)
         benchmark_returns = self._simulate_portfolio(benchmark, actual)
@@ -410,6 +424,8 @@ class WalkForwardBacktester:
 
         print(f"\nCampbell-Thompson R² OOS: {metrics['r2_oos']:.4f}")
         print(f"Direction Accuracy (Hit Ratio): {metrics['hit_ratio']:.2%}")
+        print(f"  Long  accuracy: {metrics.get('pos_accuracy', 0):.2%}  ({metrics.get('n_pos', 0)} predictions)")
+        print(f"  Short accuracy: {metrics.get('neg_accuracy', 0):.2%}  ({metrics.get('n_neg', 0)} predictions)")
 
         print(f"\nMean Squared Error: {metrics['mse']:.6f}")
         print(f"Mean Absolute Error: {metrics['mae']:.4f}")

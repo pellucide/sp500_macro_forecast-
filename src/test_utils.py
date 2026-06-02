@@ -59,6 +59,14 @@ def calc_metrics(preds, actual, annualization=12):
     direction_correct = np.sum(np.sign(preds) == np.sign(actual))
     hit_ratio = direction_correct / len(actual) * 100
 
+    # Direction breakdown: positive vs negative prediction accuracy
+    pos_mask = preds > 0
+    neg_mask = preds < 0
+    n_pos = int(pos_mask.sum())
+    n_neg = int(neg_mask.sum())
+    pos_accuracy = float(np.mean(np.sign(actual[pos_mask]) == 1)) if n_pos > 0 else 0.0
+    neg_accuracy = float(np.mean(np.sign(actual[neg_mask]) == -1)) if n_neg > 0 else 0.0
+
     # Use direction signal for fair cross-strategy comparison
     positions = np.sign(preds)
     pnl = positions * actual  # P&L in % per period
@@ -73,6 +81,10 @@ def calc_metrics(preds, actual, annualization=12):
 
     return {
         'hit_ratio': hit_ratio,
+        'n_pos': n_pos,
+        'n_neg': n_neg,
+        'pos_accuracy': pos_accuracy * 100,
+        'neg_accuracy': neg_accuracy * 100,
         'total_pnl': total_pnl,
         'ann_return': ann_return,
         'ann_vol': ann_vol,

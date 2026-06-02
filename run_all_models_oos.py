@@ -168,6 +168,10 @@ def run_model(model_type, step_size=3, train_window=120,
         'r2_oos': metrics.r2_oos,
         'r2_ci': f"[{r2_lower:.4f}, {r2_upper:.4f}]",
         'hit_ratio': metrics.hit_ratio,
+        'n_pos': metrics.n_pos,
+        'n_neg': metrics.n_neg,
+        'pos_accuracy': metrics.pos_accuracy,
+        'neg_accuracy': metrics.neg_accuracy,
         'sharpe': metrics.sharpe_ratio,
         'sortino': metrics.sortino_ratio,
         'calmar': metrics.calmar_ratio,
@@ -194,14 +198,19 @@ def print_results(results):
     print("=" * 120)
 
     # Summary header
-    print(f"\n{'Model':<16} {'R² OOS':>8} {'Hit%':>7} {'Sharpe':>8} {'Sortino':>8} {'Calmar':>8} {'MaxDD':>7} {'CumRet':>8} {'AnnRet':>8} {'AnnVol':>7} {'DM t':>7} {'DM p':>7} {'Time':>8}")
+    print(f"\n{'Model':<16} {'R² OOS':>8} {'Hit%':>7} {'LongAcc':>8} {'ShortAcc':>9} {'nLong':>6} {'nShort':>7} {'Sharpe':>8} {'CumRet':>8} {'AnnRet':>8} {'AnnVol':>7} {'DM p':>7} {'Time':>8}")
     print("-" * 120)
 
     for r in results:
+        pos_acc = r.get('pos_accuracy', 0)
+        neg_acc = r.get('neg_accuracy', 0)
+        n_pos = r.get('n_pos', 0)
+        n_neg = r.get('n_neg', 0)
         print(f"{r['model']:<16} {r['r2_oos']:>8.4f} {r['hit_ratio']:>6.1%} "
-              f"{r['sharpe']:>8.4f} {r['sortino']:>8.4f} {r['calmar']:>8.4f} "
-              f"{r['max_dd']:>6.2%} {r['cum_ret']:>7.2%} {r['ann_ret']:>7.2%} "
-              f"{r['ann_vol']:>6.2%} {r['dm_stat']:>7.3f} {r['dm_pval']:>7.4f} "
+              f"{pos_acc:>7.1%} {neg_acc:>8.1%} {n_pos:>5d} {n_neg:>6d} "
+              f"{r['sharpe']:>8.4f} "
+              f"{r['cum_ret']:>7.2%} {r['ann_ret']:>7.2%} "
+              f"{r['ann_vol']:>6.2%} {r['dm_pval']:>7.4f} "
               f"{r['time_s']:>7.1f}s")
 
     print("-" * 120)
