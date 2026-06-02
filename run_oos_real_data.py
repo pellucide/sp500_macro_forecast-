@@ -44,6 +44,65 @@ def load_sp500_returns(start='1979-01-01', end='2026-06-01'):
     return returns
 
 
+def impute_vix_proxy(indicators, returns):
+    """
+    Impute missing VIX values before 1990 using realized volatility proxy.
+    
+    VIX (implied volatility) is only available from 1990-01. For earlier periods,
+    we compute a point-in-time proxy from rolling 12-month realized volatility
+    of S&P 500 returns. This is a standard approach in academic finance.
+    
+    Proxy = rolling_12m_std(returns) * sqrt(12)
+    
+    Args:
+        indicators: DataFrame with macro indicators (must contain 'VIXCLS')
+        returns: Series of S&P 500 monthly returns
+    """
+    if 'VIXCLS' not in indicators.columns:
+        logger.warning("VIXCLS not found in indicators, skipping proxy imputation")
+        return indicators
+    
+    vix = indicators['VIXCLS']
+    n_missing = vix.isna().sum()
+    
+    if n_missing == 0:
+        logger.info("VIX has no missing values, no proxy needed")
+        return indicators
+    
+    # Compute realized volatility proxy: 12-month rolling std, annualized
+    # Align to indicators index (returns may have different start date)
+    aligned_returns = returns.reindex(indicators.index)
+    rolling_vol = aligned_returns.rolling(window=12, min_periods=6).std()
+    vix_proxy = rolling_vol * np.sqrt(12) * 100  # Convert to percentage (VIX units)
+    
+    # Fill only NaN VIX values with proxy (don't overwrite actual VIX)
+    indicators = indicators.copy()
+    mask = indicators['VIXCLS'].isna()
+    indicators.loc[mask, 'VIXCLS'] = vix_proxy[mask]
+    
+    n_filled = mask.sum()
+    logger.info(f"VIX proxy imputation: filled {n_filled} missing values "
+                f"({indicators.index[mask][0].strftime('%Y-%m')} to "
+                f"{indicators.index[mask][-1].strftime('%Y-%m')})")
+    
+    # Also update VIX regime flags for consistency with proxy
+    # Use proxy-derived thresholds (no look-ahead: use expanding median up to each point)
+    if 'VIX_REGIME_HIGH' in indicators.columns or 'VIX_REGIME_LOW' in indicators.columns:
+        vix_filled = indicators['VIXCLS']
+        # Expanding 75th percentile for high regime (point-in-time)
+        high_threshold = vix_filled.expanding(min_periods=24).quantile(0.75)
+        low_threshold = vix_filled.expanding(min_periods=24).quantile(0.25)
+        
+        if 'VIX_REGIME_HIGH' in indicators.columns:
+            indicators['VIX_REGIME_HIGH'] = (vix_filled > high_threshold).astype(float)
+        if 'VIX_REGIME_LOW' in indicators.columns:
+            indicators['VIX_REGIME_LOW'] = (vix_filled < low_threshold).astype(float)
+        
+        logger.info("Updated VIX_REGIME_HIGH/LOW flags to match proxy-imputed VIX")
+    
+    return indicators
+
+
 def create_groups_from_data(df):
     """Create feature groups based on columns actually present in the data."""
     cols = set(df.columns)
@@ -111,6 +170,9 @@ def run_oos_test(model_type='elasticnet', step_size=3, train_window=120, n_facto
     # Load data
     indicators = load_fred_data()
     target = load_sp500_returns()
+    
+    # FIX: Impute missing pre-1990 VIX with realized volatility proxy
+    indicators = impute_vix_proxy(indicators, target)
     
     # Create groups
     groups = create_groups_from_data(indicators)
