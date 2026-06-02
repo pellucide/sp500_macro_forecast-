@@ -4,6 +4,8 @@ Out-of-Sample Test with Real Market Data
 Uses cached FRED data + SP500 returns from Yahoo Finance
 """
 
+import os
+import time
 import warnings
 import numpy as np
 import pandas as pd
@@ -30,6 +32,235 @@ def load_fred_data(path='data/fred_cache/all_fred_data_enhanced.csv'):
     logger.info(f"Loaded FRED data: {df.shape[1]} indicators, {df.shape[0]} months")
     logger.info(f"Date range: {df.index[0].strftime('%Y-%m')} to {df.index[-1].strftime('%Y-%m')}")
     return df
+
+
+# =============================================================================
+# Alternative/Exuberance Features
+# =============================================================================
+
+ALT_CACHE_FILE = 'data/fred_cache/alternative_features.csv'
+ALT_CACHE_MAX_DAYS = 30  # Re-fetch after 30 days
+
+
+def fetch_shiller_cape():
+    """Download Shiller CAPE (Cyclically Adjusted P/E) from Yale.
+
+    Source: http://www.econ.yale.edu/~shiller/data/ie_data.xls
+    Returns monthly DataFrame with 'CAPE' column.
+    """
+    url = 'http://www.econ.yale.edu/~shiller/data/ie_data.xls'
+    logger.info("Downloading Shiller CAPE data...")
+    try:
+        df = pd.read_excel(url, sheet_name='Data', skiprows=7)
+        # Column 0 = Date (YYYY.MM decimal), Column 12 = CAPE
+        cape = df.iloc[:, [0, 12]].copy()
+        cape.columns = ['date_frac', 'CAPE']
+        cape = cape.dropna(subset=['CAPE'])
+
+        # Convert YYYY.MM decimal to datetime
+        def date_frac_to_ts(x):
+            year = int(x)
+            # Month from decimal: 1871.01 = Jan, 1871.02 = Feb, etc.
+            # Need round() to handle floating point imprecision
+            month = int(round((x - year) * 100))
+            if month < 1:
+                month = 1
+            if month > 12:
+                month = 12
+            return pd.Timestamp(year=year, month=month, day=1)
+
+        cape['date'] = cape['date_frac'].apply(date_frac_to_ts)
+        cape = cape.set_index('date')[['CAPE']].sort_index()
+        cape = cape[~cape.index.duplicated(keep='last')]
+        # Convert to month-end to align with FRED data (which uses month-end)
+        cape.index = cape.index + pd.offsets.MonthEnd(0)
+        # Remove any future data beyond what we need (before 2026-06)
+        cape = cape[cape.index <= '2026-06-30']
+        logger.info(f"  CAPE: {len(cape)} months, {cape.index[0].strftime('%Y-%m')} to {cape.index[-1].strftime('%Y-%m')}")
+        return cape
+    except Exception as e:
+        logger.error(f"Failed to fetch Shiller CAPE: {e}")
+        return None
+
+
+def fetch_put_call_ratio():
+    """Download CBOE put/call ratio and aggregate to monthly.
+
+    Combines archive (1995-2003) with daily data (2006-2019+).
+    Returns monthly DataFrame with 'PUT_CALL_RATIO' column.
+    """
+    logger.info("Downloading CBOE put/call ratio...")
+    try:
+        # Archive: 1995-2003, has Total, Index, Equity columns
+        archive_url = 'https://cdn.cboe.com/resources/options/volume_and_call_put_ratios/pcratioarchive.csv'
+        archive = pd.read_csv(archive_url, skiprows=2, encoding='latin1')
+        arch = archive.iloc[:, [0, 1]].copy()
+        arch.columns = ['Date', 'PUT_CALL_RATIO']
+        arch['Date'] = pd.to_datetime(arch['Date'])
+        arch = arch.dropna()
+        logger.info(f"  Archive: {len(arch)} obs ({arch['Date'].min():%Y-%m} to {arch['Date'].max():%Y-%m})")
+
+        # Daily: 2006-2019, has Date, Calls, Puts, Total, Ratio
+        daily_url = 'https://cdn.cboe.com/resources/options/volume_and_call_put_ratios/totalpc.csv'
+        daily = pd.read_csv(
+            daily_url, skiprows=3, header=None,
+            names=['Date', 'Calls', 'Puts', 'Total', 'PUT_CALL_RATIO']
+        )
+        daily['Date'] = pd.to_datetime(daily['Date'], errors='coerce')
+        daily = daily.dropna(subset=['Date', 'PUT_CALL_RATIO'])
+        logger.info(f"  Daily: {len(daily)} obs ({daily['Date'].min():%Y-%m} to {daily['Date'].max():%Y-%m})")
+
+        # Combine both sources
+        combined = pd.concat([
+            arch[['Date', 'PUT_CALL_RATIO']],
+            daily[['Date', 'PUT_CALL_RATIO']]
+        ]).dropna().sort_values('Date').drop_duplicates('Date')
+
+        # Aggregate daily to monthly (mean)
+        combined = combined.set_index('Date')
+        monthly = combined.resample('ME').mean()
+        monthly.index.freq = 'ME'
+        logger.info(f"  Combined monthly: {len(monthly)} obs ({monthly.index[0].strftime('%Y-%m')} to {monthly.index[-1].strftime('%Y-%m')})")
+        return monthly
+    except Exception as e:
+        logger.error(f"Failed to fetch put/call ratio: {e}")
+        return None
+
+
+def fetch_margin_debt():
+    """Fetch NYSE margin debt from FRED Flow of Funds (quarterly → monthly).
+
+    Uses FRED series BOGZ1FL663067003Q (Security Brokers and Dealers;
+    Margin Loans) and forward-fills to monthly frequency.
+    Returns monthly DataFrame with 'MARGIN_DEBT' column.
+    """
+    logger.info("Fetching margin debt from FRED Flow of Funds...")
+    try:
+        from fredapi import Fred
+        fred = Fred('48f0923658be7d90ba311c4a55138377')
+        # Quarterly margin loans (brokers/dealers receivables from customers)
+        qtr = fred.get_series('BOGZ1FL663067003Q')
+        qtr = qtr.dropna().sort_index()
+
+        # Convert to DataFrame
+        md = pd.DataFrame({'MARGIN_DEBT': qtr})
+        md.index = pd.to_datetime(md.index)
+
+        # Upsample to monthly (forward fill within quarter)
+        monthly_idx = pd.date_range(start=md.index[0], end=md.index[-1], freq='ME')
+        md_monthly = md.reindex(monthly_idx, method='ffill')
+        md_monthly.index.freq = 'ME'
+
+        logger.info(f"  Margin debt: {len(md_monthly)} months ({md_monthly.index[0].strftime('%Y-%m')} to {md_monthly.index[-1].strftime('%Y-%m')})")
+        return md_monthly
+    except Exception as e:
+        logger.error(f"Failed to fetch margin debt: {e}")
+        return None
+
+
+def fetch_aaii_sentiment():
+    """Fetch AAII Bull/Bear sentiment spread.
+
+    Attempts to download from AAII website or alternative sources.
+    Returns monthly DataFrame with 'AAII_BULL_BEAR_SPREAD' column.
+    Falls back gracefully if source is unavailable.
+    """
+    logger.info("Attempting to fetch AAII sentiment data...")
+    try:
+        # AAII publishes weekly bull/bear survey results
+        # Try a known CSV endpoint from a data aggregator
+        # Fallback: compute from put/call and VIX (last resort)
+        import requests
+        from io import StringIO
+
+        # Try multiple potential sources
+        sources = [
+            # Nasdaq Data Link CSV URL (if available)
+            None,
+        ]
+
+        # Direct web scrape from AAII public page
+        url = 'https://www.aaii.com/sentiment/survey-results'
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        r = requests.get(url, headers=headers, timeout=10)
+
+        if r.status_code == 200:
+            # Try to parse the page for recent survey data
+            import re
+            # AAII typically publishes bull/bear/neutral percentages
+            # Try to extract from HTML tables
+            tables = pd.read_html(StringIO(r.text))
+            for t in tables:
+                if 'Bullish' in str(t.columns) or 'Bullish' in str(t.values):
+                    logger.info(f"  AAII data found in HTML table")
+                    return t
+
+        logger.warning("AAII sentiment source not available, skipping")
+        return None
+
+    except Exception as e:
+        logger.warning(f"AAII sentiment fetch failed: {e}")
+        return None
+
+
+def load_alternative_features():
+    """Load all alternative/exuberance features from cache or fetch fresh.
+
+    Returns a DataFrame with monthly index and columns:
+        CAPE, PUT_CALL_RATIO, MARGIN_DEBT, AAII_BULL_BEAR_SPREAD
+    NaN values indicate the feature is not available for that period.
+    """
+    # Check cache
+    if os.path.exists(ALT_CACHE_FILE):
+        file_age = (time.time() - os.path.getmtime(ALT_CACHE_FILE)) / (24 * 3600)
+        if file_age < ALT_CACHE_MAX_DAYS:
+            logger.info(f"Loading cached alternative features ({file_age:.1f} days old)")
+            df = pd.read_csv(ALT_CACHE_FILE, index_col=0, parse_dates=True)
+            logger.info(f"  Loaded {df.shape[1]} features, {df.shape[0]} months")
+            return df
+        else:
+            logger.info(f"Cache stale ({file_age:.1f} days), refreshing...")
+
+    # Fetch all features
+    logger.info("Fetching alternative features...")
+
+    features = []
+    fetchers = [
+        ('CAPE', fetch_shiller_cape),
+        ('PUT_CALL_RATIO', fetch_put_call_ratio),
+        ('MARGIN_DEBT', fetch_margin_debt),
+        ('AAII_BULL_BEAR_SPREAD', fetch_aaii_sentiment),
+    ]
+
+    for name, fetcher in fetchers:
+        try:
+            df = fetcher()
+            if df is not None and len(df) > 0:
+                features.append(df)
+                logger.info(f"  ✓ {name}: {len(df)} obs")
+            else:
+                logger.warning(f"  ✗ {name}: no data")
+        except Exception as e:
+            logger.warning(f"  ✗ {name}: {e}")
+
+    if not features:
+        logger.warning("No alternative features could be fetched")
+        return pd.DataFrame()
+
+    # Merge all on index (outer join to preserve all dates)
+    merged = features[0]
+    for df in features[1:]:
+        merged = merged.join(df, how='outer')
+
+    merged = merged.sort_index()
+    logger.info(f"Merged alternative features: {merged.shape[1]} cols, {merged.shape[0]} rows")
+
+    # Cache
+    os.makedirs(os.path.dirname(ALT_CACHE_FILE), exist_ok=True)
+    merged.to_csv(ALT_CACHE_FILE)
+    logger.info(f"Cached to {ALT_CACHE_FILE}")
+
+    return merged
 
 
 def load_sp500_returns(start='1979-01-01', end='2026-06-01'):
@@ -117,6 +348,8 @@ def create_groups_from_data(df):
                                   'BAAFFM', 'AAAFFM', 'CREDIT_SPREAD_BAA', 'CREDIT_SPREAD_QUALITY'] if c in cols],
         'sentiment': [c for c in ['VIXCLS', 'UMCSENT', 'IC4WSA', 'SENTIMENT_REGIME',
                                    'VIX_REGIME_HIGH', 'VIX_REGIME_LOW'] if c in cols],
+        'exuberance': [c for c in ['CAPE', 'PUT_CALL_RATIO', 'MARGIN_DEBT',
+                                    'AAII_BULL_BEAR_SPREAD'] if c in cols],
         'money_supply': [c for c in ['M1SL', 'M2SL', 'M3SL',
                                       'M1_GROWTH_12M', 'M1_GROWTH_6M', 'M1_GROWTH_3M', 'M1_ACCEL',
                                       'M2_GROWTH_12M', 'M2_GROWTH_6M', 'M2_GROWTH_3M', 'M2_ACCEL',

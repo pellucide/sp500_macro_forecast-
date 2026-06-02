@@ -51,7 +51,11 @@ class MetricsCalculator:
         self,
         annualization_factor: int = 12,
         risk_free_rate: float = 0.0,
-        target_return: float = 0.0
+        target_return: float = 0.0,
+        max_long: float = 1.0,
+        max_short: float = 1.0,
+        margin_rate: float = 0.05,
+        drawdown_limit: float = 0.25
     ):
         """
         Initialize metrics calculator.
@@ -60,10 +64,18 @@ class MetricsCalculator:
             annualization_factor: Factor to annualize returns (12 for monthly)
             risk_free_rate: Risk-free rate for Sharpe ratio calculation
             target_return: Target return for Sortino ratio
+            max_long: Maximum long position (1.0 = no margin)
+            max_short: Maximum short position (1.0 = full short)
+            margin_rate: Annual margin interest rate
+            drawdown_limit: Max drawdown before levered positions reduced (0.0-0.5)
         """
         self.annualization = annualization_factor
         self.risk_free_rate = risk_free_rate
         self.target_return = target_return
+        self.max_long = max_long
+        self.max_short = max_short
+        self.margin_rate = margin_rate
+        self.drawdown_limit = drawdown_limit
 
     def calculate(
         self,
@@ -207,21 +219,17 @@ class MetricsCalculator:
         actual: pd.Series
     ) -> pd.Series:
         """
-        Create portfolio returns from signals.
+        Create portfolio returns from signals using asymmetric position sizing.
 
-        Long when positive, short when negative, neutral when zero.
+        Uses max_long/max_short for asymmetric sizing, margin_rate for borrowing
+        costs, and drawdown_limit for leverage reduction.
         """
-        positions = np.sign(signals.values)
-
-        # FIXED: Expanding max to prevent look-ahead bias.
-        # Original used np.abs(signals.values).max() over the full test period,
-        # leaking future signal magnitudes into early position sizing.
-        max_signal = np.maximum.accumulate(np.abs(signals.values)).clip(min=1e-8)
-        positions = positions * (np.abs(signals.values) / max_signal)
-
-        return pd.Series(
-            positions * actual.values,
-            index=actual.index
+        return _simulate_asymmetric_portfolio(
+            signals, actual,
+            max_long=self.max_long,
+            max_short=self.max_short,
+            margin_rate=self.margin_rate,
+            drawdown_limit=self.drawdown_limit
         )
 
     def _sharpe_ratio(self, returns: pd.Series) -> float:
@@ -332,6 +340,80 @@ class MetricsCalculator:
     def _kurtosis(self, returns: pd.Series) -> float:
         """Excess kurtosis of returns."""
         return returns.kurtosis()
+
+
+def _simulate_asymmetric_portfolio(
+    signals: pd.Series,
+    actual_returns: pd.Series,
+    max_long: float = 1.0,
+    max_short: float = 1.0,
+    margin_rate: float = 0.05,
+    drawdown_limit: float = 0.25
+) -> pd.Series:
+    """
+    Simulate portfolio returns with asymmetric position sizing, margin, and drawdown limit.
+
+    Asymmetric sizing: positions range from [-max_short, +max_long] instead of [-1, 1].
+    Margin cost: leverage > 1.0 incurs annual margin_rate interest.
+    Drawdown limit: levered long positions (>1.0x) are reduced proportionally
+    when drawdown exceeds the threshold.
+
+    Args:
+        signals: Prediction signals
+        actual_returns: Actual period returns
+        max_long: Maximum long position (1.0 = no margin, 1.5 = 50% margin)
+        max_short: Maximum short position (1.0 = full short, 0.5 = half short, 0.0 = no short)
+        margin_rate: Annual margin interest rate (e.g., 0.05 = 5%)
+        drawdown_limit: Max drawdown before levered positions are reduced (0.0 to 0.5)
+
+    Returns:
+        Portfolio return series (adjusted for margin costs and drawdown limits)
+    """
+    # Signal strength relative to expanding max
+    max_signal = signals.abs().expanding().max().clip(lower=1e-8)
+    signal_strength = signals.abs() / max_signal.values
+
+    # Asymmetric positions based on signal direction
+    raw_positions = np.where(
+        signals.values > 0,
+        signal_strength * max_long,
+        -signal_strength * max_short
+    )
+
+    # Apply drawdown-based leverage reduction on long side
+    if drawdown_limit > 0 and max_long > 1.0:
+        adjusted_positions = np.zeros(len(signals))
+        cumulative = 1.0
+        peak = 1.0
+        for i in range(len(signals)):
+            pos = raw_positions[i]
+            # Check drawdown for levered long positions
+            if pos > 1.0:
+                excess = max(0.0, (cumulative - peak) / peak)
+                excess_ratio = excess / drawdown_limit
+                if excess_ratio > 0:
+                    # Linear reduction: at 1x limit = full levered exposure
+                    # at 2x limit = back to 1.0x (no leverage)
+                    reduction = max(0.0, 1.0 - min(excess_ratio, 1.0) * 0.5)
+                    pos = 1.0 + (pos - 1.0) * reduction
+            adjusted_positions[i] = pos
+
+            # Update drawdown tracking
+            ret = adjusted_positions[i] * actual_returns.values[i]
+            cumulative *= (1 + ret)
+            peak = max(peak, cumulative)
+    else:
+        adjusted_positions = raw_positions
+
+    # Apply margin cost
+    if margin_rate > 0:
+        leverage = np.maximum(0, np.abs(adjusted_positions) - 1.0)
+        margin_cost = leverage * (margin_rate / 12)
+        portfolio_returns = adjusted_positions * actual_returns.values - margin_cost
+    else:
+        portfolio_returns = adjusted_positions * actual_returns.values
+
+    return pd.Series(portfolio_returns, index=actual_returns.index)
 
 
 class StatisticalTests:

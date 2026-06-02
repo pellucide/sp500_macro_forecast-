@@ -12,6 +12,7 @@ import logging
 
 from .backtesting import WalkForwardBacktester, BacktestResult
 from .ssrf_model import SSRFModel, SSRFConfig, TCConfig
+from .evaluation import _simulate_asymmetric_portfolio
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +58,11 @@ class TCAdjustedWalkForwardBacktester:
         account_tier: str = "standard",
         expected_turnover: float = 0.15,
         position_threshold: float = 0.02,
+        # Margin / asymmetric position parameters
+        max_long: float = 1.0,
+        max_short: float = 1.0,
+        margin_rate: float = 0.05,
+        drawdown_limit: float = 0.25,
     ):
         """
         Initialize TC-adjusted backtester.
@@ -71,6 +77,10 @@ class TCAdjustedWalkForwardBacktester:
             account_tier: Account tier (micro, standard, professional, institutional)
             expected_turnover: Expected portfolio turnover rate
             position_threshold: Minimum signal to trigger trade
+            max_long: Maximum long position (1.0 = no margin)
+            max_short: Maximum short position (1.0 = full short)
+            margin_rate: Annual margin interest rate
+            drawdown_limit: Max drawdown before levered positions reduced (0.0-0.5)
         """
         self.model_class = model_class
         self.initial_train_window = initial_train_window
@@ -83,6 +93,12 @@ class TCAdjustedWalkForwardBacktester:
         self.account_tier = account_tier
         self.expected_turnover = expected_turnover
         self.position_threshold = position_threshold
+
+        # Margin / asymmetric position parameters
+        self.max_long = max_long
+        self.max_short = max_short
+        self.margin_rate = margin_rate
+        self.drawdown_limit = drawdown_limit
 
         # Conviction filtering parameters
         self.min_conviction_threshold: float = 0.0
@@ -137,13 +153,17 @@ class TCAdjustedWalkForwardBacktester:
         if verbose:
             logger.info(f"Running TC-adjusted backtest with {self.effective_tc_rate:.1f} bps TC rate")
 
-        # Create standard backtester
+        # Create standard backtester (pass margin/asymmetric params through)
         base_backtester = WalkForwardBacktester(
             model_class=self.model_class,
             initial_train_window=self.initial_train_window,
             forecast_horizon=self.forecast_horizon,
             use_ct_restriction=self.use_ct_restriction,
-            step_size=self.step_size
+            step_size=self.step_size,
+            max_long=self.max_long,
+            max_short=self.max_short,
+            margin_rate=self.margin_rate,
+            drawdown_limit=self.drawdown_limit
         )
 
         # Run base backtest
@@ -315,21 +335,15 @@ class TCAdjustedWalkForwardBacktester:
     ) -> pd.Series:
         """
         Calculate gross returns (before TC).
-        Uses same long/short logic as _simulate_portfolio() for consistency.
+        Uses same asymmetric position sizing as _simulate_portfolio().
         """
-        # Use same position calculation as backtesting._simulate_portfolio()
-        positions = np.sign(predictions.values)
-        # FIXED: Expanding max to prevent look-ahead bias.
-        # Original used np.abs(predictions.values).max() over the full test period,
-        # leaking future signal magnitudes into early position sizing.
-        max_signal = np.maximum.accumulate(np.abs(predictions.values)).clip(min=1e-8)
-        positions = positions * (np.abs(predictions.values) / max_signal)
-
-        gross_returns = pd.Series(
-            positions * actual_returns.values,
-            index=predictions.index
+        return _simulate_asymmetric_portfolio(
+            predictions, actual_returns,
+            max_long=self.max_long,
+            max_short=self.max_short,
+            margin_rate=self.margin_rate,
+            drawdown_limit=self.drawdown_limit
         )
-        return gross_returns
 
     def _calculate_net_returns(
         self,

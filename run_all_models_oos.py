@@ -28,12 +28,19 @@ from src.evaluation import MetricsCalculator, StatisticalTests
 # Re-import run_oos_real_data functions
 from run_oos_real_data import (
     load_fred_data, load_sp500_returns, impute_vix_proxy,
-    create_groups_from_data
+    create_groups_from_data, load_alternative_features
 )
 
 MODEL_TYPES = ['elasticnet', 'linear', 'xgboost', 'random_forest', 'catboost', 'mlp', 'ensemble']
 
-FORWARD_HORIZON = 3  # months
+FORWARD_HORIZON = 3
+
+# Asymmetric position sizing defaults
+MAX_LONG = 1.0     # max long exposure (1.0 = no margin, 1.5 = 50% margin)
+MAX_SHORT = 1.0    # max short exposure (1.0 = full short, 0.0 = no short)
+MARGIN_RATE = 0.05  # annual margin interest rate
+DRAWDOWN_LIMIT = 0.25  # drawdown threshold for leverage reduction (0.0-0.5)
+STEP_SIZE = 3  # default step size, overridden by CLI args
 
 
 def load_forward_returns(horizon=3):
@@ -53,7 +60,9 @@ def load_forward_returns(horizon=3):
     return monthly_ret, forward_ret
 
 
-def run_model(model_type, step_size=3, train_window=120):
+def run_model(model_type, step_size=3, train_window=120,
+              max_long=MAX_LONG, max_short=MAX_SHORT,
+              margin_rate=MARGIN_RATE, drawdown_limit=DRAWDOWN_LIMIT):
     """Run OOS test for a single model type with 3-month forward returns."""
     indicators = load_fred_data()
 
@@ -62,6 +71,22 @@ def run_model(model_type, step_size=3, train_window=120):
 
     # VIX proxy needs 1-month returns (rolling 12-month realized volatility)
     indicators = impute_vix_proxy(indicators, monthly_ret)
+
+    # Merge alternative/exuberance features (CAPE, put/call ratio, margin debt)
+    alt_features = load_alternative_features()
+    if alt_features is not None and len(alt_features) > 0:
+        indicators = indicators.join(alt_features, how='left')
+        # Forward-fill gaps within each series
+        indicators = indicators.ffill()
+        # Fill leading NaN (features that start after FRED data, e.g. PUT_CALL_RATIO from 1995)
+        # with the first valid value to avoid NaN breakage in PCA
+        for col in alt_features.columns:
+            if col in indicators.columns and indicators[col].isna().any():
+                first_val = indicators[col].dropna()
+                if len(first_val) > 0:
+                    indicators[col] = indicators[col].fillna(first_val.iloc[0])
+        logger.info(f"Merged alternative features: {indicators.shape[1]} total columns")
+
     groups = create_groups_from_data(indicators)
 
     # Align: X[t] predicts 3-month forward return from t to t+horizon
@@ -89,6 +114,10 @@ def run_model(model_type, step_size=3, train_window=120):
         initial_train_window=train_window,
         step_size=step_size,
         use_ct_restriction=False,
+        max_long=max_long,
+        max_short=max_short,
+        margin_rate=margin_rate,
+        drawdown_limit=drawdown_limit,
     )
 
     t0 = time.time()
@@ -98,7 +127,13 @@ def run_model(model_type, step_size=3, train_window=120):
     # Annualization factor = 12/horizon for horizon-month returns
     # NOTE: with overlapping forward returns, Sharpe is unreliable.
     # R² OOS and hit ratio are the primary metrics.
-    calc = MetricsCalculator(annualization_factor=12 // FORWARD_HORIZON)
+    calc = MetricsCalculator(
+        annualization_factor=12 // FORWARD_HORIZON,
+        max_long=max_long,
+        max_short=max_short,
+        margin_rate=margin_rate,
+        drawdown_limit=drawdown_limit,
+    )
     metrics = calc.calculate(result.predictions, result.actual_returns, result.benchmark_predictions)
 
     # Benchmark return (cumulative 3-month return)
@@ -145,6 +180,7 @@ def print_results(results):
     print("=" * 120)
     print("SSRF MODEL COMPARISON — 3-MONTH FORWARD RETURNS (OVERLAPPING, MONTHLY FREQ)")
     print(f"Run: {datetime.now()}")
+    print(f"Step size: {STEP_SIZE} month(s)")
     print(f"Target: (P[t+3] / P[t]) - 1, predicted monthly from FRED-MD")
     print(f"Benchmark: expanding mean of 3-month forward returns")
     print("=" * 120)
@@ -179,16 +215,30 @@ def print_results(results):
 
 
 if __name__ == "__main__":
-    # Allow specifying which models to run via args
-    if len(sys.argv) > 1:
-        models_to_run = [m for m in MODEL_TYPES if m in sys.argv[1:]]
-        if not models_to_run:
-            models_to_run = MODEL_TYPES
-    else:
-        models_to_run = MODEL_TYPES
+    import argparse
+    parser = argparse.ArgumentParser(description='Run OOS comparison across all model types')
+    parser.add_argument('models', nargs='*', help='Model types to run (default: all)')
+    parser.add_argument('--max-long', type=float, default=MAX_LONG,
+                        help=f'Max long exposure (default: {MAX_LONG})')
+    parser.add_argument('--max-short', type=float, default=MAX_SHORT,
+                        help=f'Max short exposure (default: {MAX_SHORT})')
+    parser.add_argument('--margin-rate', type=float, default=MARGIN_RATE,
+                        help=f'Annual margin interest rate (default: {MARGIN_RATE})')
+    parser.add_argument('--drawdown-limit', type=float, default=DRAWDOWN_LIMIT,
+                        help=f'Drawdown limit for leverage reduction 0.0-0.5 (default: {DRAWDOWN_LIMIT})')
+    parser.add_argument('--step-size', type=int, default=3,
+                        help=f'Walk-forward step in months (default: 3)')
+    args = parser.parse_args()
+
+    STEP_SIZE = args.step_size  # noqa: F811 — re-bind module-level constant
+
+    models_to_run = [m for m in MODEL_TYPES if m in args.models] if args.models else MODEL_TYPES
 
     print(f"Models to run: {', '.join(models_to_run)}")
     print(f"Target: {FORWARD_HORIZON}-month forward return, monthly frequency")
+    print(f"Step size: {args.step_size} month(s) (rebalance every {args.step_size} month(s))")
+    print(f"Position sizing: max_long={args.max_long}, max_short={args.max_short}")
+    print(f"Margin: {args.margin_rate:.1%}, drawdown_limit={args.drawdown_limit}")
     print()
 
     all_results = []
@@ -198,7 +248,14 @@ if __name__ == "__main__":
         print(f"{'='*70}")
         sys.stdout.flush()
         try:
-            result = run_model(model_type)
+            result = run_model(
+                model_type,
+                step_size=args.step_size,
+                max_long=args.max_long,
+                max_short=args.max_short,
+                margin_rate=args.margin_rate,
+                drawdown_limit=args.drawdown_limit,
+            )
             all_results.append(result)
             print(f"  {model_type}: R² OOS={result['r2_oos']:.4f}, "
                   f"Hit={result['hit_ratio']:.1%}, Sharpe={result['sharpe']:.4f}, "
@@ -206,6 +263,8 @@ if __name__ == "__main__":
             sys.stdout.flush()
         except Exception as e:
             print(f"  {model_type}: FAILED - {e}", file=sys.stderr)
+            import traceback
+            traceback.print_exc()
             sys.stderr.flush()
 
     print()

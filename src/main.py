@@ -217,6 +217,11 @@ def run_backtest(
         min_conviction_threshold=args.conviction_threshold,
         # Prediction scaling
         prediction_scale=args.prediction_scale,
+        # Margin / asymmetric position sizing (used by backtester)
+        max_long_exposure=args.max_long,
+        max_short_exposure=args.max_short,
+        margin_rate=args.margin_rate,
+        margin_drawdown_limit=args.drawdown_limit,
     )
 
     # Create model class wrapper to enable Ridge if requested
@@ -549,6 +554,16 @@ def main(args=None):
                         help='Enable high-conviction signal filtering')
     parser.add_argument('--conviction-threshold', type=float, default=1.0,
                         help='Minimum conviction threshold (default: 1.0, z-score style)')
+
+    # Asymmetric position / margin options
+    parser.add_argument('--max-long', type=float, default=1.0,
+                        help='Maximum long position (1.0 = no margin, 1.5 = 50%% margin, default: 1.0)')
+    parser.add_argument('--max-short', type=float, default=1.0,
+                        help='Maximum short position (1.0 = full short, 0.5 = half, 0.0 = no short, default: 1.0)')
+    parser.add_argument('--margin-rate', type=float, default=0.05,
+                        help='Annual margin interest rate (default: 0.05 = 5%%)')
+    parser.add_argument('--drawdown-limit', type=float, default=0.25,
+                        help='Drawdown limit for leverage reduction, 0.0-0.5 (default: 0.25)')
 
     # Output options
     parser.add_argument('--output-dir', type=str, default=None,

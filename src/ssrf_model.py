@@ -88,6 +88,23 @@ class SSRFConfig:
     # Kept for backward compatibility but has no effect.
     prediction_scale: float = 1.0
 
+    # Asymmetric position sizing
+    # max_long_exposure: maximum long position (1.0 = no margin, >1.0 = levered)
+    # max_short_exposure: maximum short position (1.0 = full short, 0.0 = no short)
+    max_long_exposure: float = 1.0
+    max_short_exposure: float = 1.0
+
+    # Margin cost (annualized). Applied when |position| > 1.0.
+    # E.g., 0.05 = 5% annual margin interest
+    margin_rate: float = 0.05
+
+    # Drawdown limit for leverage reduction (0.0 to 0.5).
+    # When drawdown exceeds this threshold, levered positions (>1.0x) are
+    # reduced proportionally. At 2x the limit, all leverage is removed.
+    # E.g., 0.25 means: at 25% drawdown start reducing, at 50% no leverage.
+    # Set to 0.0 to disable.
+    margin_drawdown_limit: float = 0.25
+
 
 @dataclass
 class ModelState:

@@ -12,6 +12,7 @@ import logging
 
 from .config import BacktestConfig
 from .ssrf_model import SSRFModel, SSRFConfig
+from .evaluation import _simulate_asymmetric_portfolio
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +46,11 @@ class WalkForwardBacktester:
         initial_train_window: int = BacktestConfig.INITIAL_TRAIN_WINDOW,
         forecast_horizon: int = BacktestConfig.FORECAST_HORIZON,
         use_ct_restriction: bool = BacktestConfig.USE_CT_RESTRICTION,
-        step_size: int = BacktestConfig.WALK_FORWARD_STEP
+        step_size: int = BacktestConfig.WALK_FORWARD_STEP,
+        max_long: float = 1.0,
+        max_short: float = 1.0,
+        margin_rate: float = 0.05,
+        drawdown_limit: float = 0.25
     ):
         """
         Initialize walk-forward backtester.
@@ -56,12 +61,20 @@ class WalkForwardBacktester:
             forecast_horizon: Forecast horizon (months)
             use_ct_restriction: Apply Campbell-Thompson restriction
             step_size: Walk-forward step size (months)
+            max_long: Maximum long position (1.0 = no margin)
+            max_short: Maximum short position (1.0 = full short)
+            margin_rate: Annual margin interest rate
+            drawdown_limit: Max drawdown before levered positions reduced (0.0-0.5)
         """
         self.model_class = model_class
         self.initial_train_window = initial_train_window
         self.forecast_horizon = forecast_horizon
         self.use_ct_restriction = use_ct_restriction
         self.step_size = step_size
+        self.max_long = max_long
+        self.max_short = max_short
+        self.margin_rate = margin_rate
+        self.drawdown_limit = drawdown_limit
 
         self.results = None
 
@@ -366,28 +379,16 @@ class WalkForwardBacktester:
         actual_returns: pd.Series
     ) -> pd.Series:
         """
-        Simulate portfolio returns based on signals.
+        Simulate portfolio returns with asymmetric position sizing.
 
-        Long when signal > 0, neutral when signal = 0, short when signal < 0.
-
-        Args:
-            signals: Prediction signals
-            actual_returns: Actual returns
-
-        Returns:
-            Portfolio returns
+        Uses max_long/max_short, margin costs, and drawdown-based leverage reduction.
         """
-        positions = np.sign(signals.values)
-        # Scale position by signal magnitude using expanding max
-        # FIXED: Use expanding max to prevent look-ahead bias.
-        # Original used signals.abs().max() over the full test period,
-        # leaking future signal magnitudes into early position sizing.
-        max_signal = signals.abs().expanding().max().clip(lower=1e-8)
-        positions = positions * (signals.abs() / max_signal.values)
-
-        return pd.Series(
-            positions * actual_returns.values,
-            index=actual_returns.index
+        return _simulate_asymmetric_portfolio(
+            signals, actual_returns,
+            max_long=self.max_long,
+            max_short=self.max_short,
+            margin_rate=self.margin_rate,
+            drawdown_limit=self.drawdown_limit
         )
 
     def _compute_max_drawdown(self, returns: pd.Series) -> float:
