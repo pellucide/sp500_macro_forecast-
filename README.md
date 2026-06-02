@@ -1,166 +1,74 @@
 # S&P 500 Macroeconomic Forecasting with SSRF Model
 
-State-Dependent Supervised Screening & Regularized Factor (SSRF) Architecture for forecasting S&P 500 excess returns using macroeconomic indicators.
+State-Dependent Supervised Screening & Regularized Factor (SSRF) architecture for forecasting equity returns from macroeconomic indicators (FRED-MD). Implements a 4-stage defensive pipeline with walk-forward backtesting, statistical significance testing, and transaction cost analysis.
 
-## Project Overview
-
-This project implements a statistically rigorous framework for equity premium prediction that addresses two primary challenges:
-
-1. **Regime Instability**: Standard models assume constant coefficients, ignoring time-varying market conditions
-2. **Revision Bias**: Using final revised data introduces look-ahead bias that overstates predictive power
-
-## Architecture
-
-The SSRF model uses a four-stage defensive pipeline:
-
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                     SSRF Model Architecture                         │
-├─────────────────────────────────────────────────────────────────────┤
-│  Stage 1: Group-Wise Supervised Screening                          │
-│  - Predictors screened within economic categories                   │
-│  - Retains features with |t-stat| > θ                               │
-│                                                                     │
-│  Stage 2: Predictive Scaling                                       │
-│  - Scale by univariate predictive slopes                            │
-│  - Prioritize signal over variance                                  │
-│                                                                     │
-│  Stage 3: Supervised Factor Extraction (PCA)                       │
-│  - Extract K latent factors from screened set                       │
-│  - Conservative dimensionality reduction                           │
-│                                                                     │
-│  Stage 4: Regime Interaction                                       │
-│  - Rolling 12-month volatility percentile proxy                     │
-│  - F × P(Z) interaction terms                                       │
-│                                                                     │
-│  Final: ElasticNetCV Regression                                     │
-└─────────────────────────────────────────────────────────────────────┘
-```
-
-## Project Structure
+## Code Structure
 
 ```
 sp500_macro_forecast/
 ├── src/
-│   ├── __init__.py           # Package initialization
-│   ├── config.py             # Configuration settings
-│   ├── fred_data.py          # FRED data acquisition
-│   ├── ssrf_model.py         # SSRF model implementation
-│   ├── backtesting.py        # Walk-forward backtesting
-│   ├── evaluation.py         # Metrics and reporting
-│   └── main.py               # Main execution script
-├── notebooks/
-│   └── analysis.ipynb        # Jupyter notebook for analysis
-├── requirements.txt         # Dependencies
+│   ├── config.py            # Configuration, parameter defaults, citations
+│   ├── fred_data.py         # FRED-MD acquisition, VIX proxy, caching
+│   ├── ssrf_model.py        # SSRF 4-stage pipeline (screening → scaling → PCA → regression)
+│   ├── backtesting.py       # Expanding/fixed window backtesting engine
+│   ├── tc_backtesting.py    # Transaction cost adjusted backtesting
+│   ├── evaluation.py        # Metrics, statistical tests, reporting
+│   ├── regime_detection.py  # HMM, volatility, trend regime classification
+│   ├── test_utils.py        # Shared utilities for OOS test scripts
+│   └── main.py              # CLI entry point
+├── docs/
+│   ├── CLI_USAGE.md         # Full CLI reference with examples
+│   ├── performance_log.md   # OOS test results, bug fixes, key findings
+│   ├── leverage_sweep_summary.md  # Asymmetric position sizing sweep
+│   ├── milestone_report.md  # CS 229 milestone report
+│   ├── sector_analysis_report.md  # 10-sector rotation analysis
+│   └── cs229_milestone.tex  # LaTeX version of milestone report
+├── test_all.py              # Combined OOS test suite (5 test configurations)
+├── run_oos_real_data.py     # OOS test with FRED cache + SPX from Yahoo Finance
+├── run_all_models_oos.py    # Multi-model OOS comparison (7 model types)
+├── requirements.txt
 └── README.md
 ```
 
-## Installation
+## Quick Start
 
 ```bash
 pip install -r requirements.txt
+python -m src.main --use-sample-data
 ```
 
-## Usage
-
-### Python API
-
-```python
-from src import (
-    generate_sample_data,
-    SSRFModel,
-    SSRFConfig,
-    WalkForwardBacktester
-)
-
-# Generate or load data
-indicators, target = generate_sample_data(n_periods=400, n_indicators=50)
-
-# Define feature groups
-groups = {
-    'output_income': [...],
-    'labor': [...],
-    'inflation': [...],
-    'interest': [...],
-    'sentiment': [...]
-}
-
-# Configure model
-config = SSRFConfig(
-    t_stat_threshold=1.5,
-    n_factors=10,
-    regime_window=12
-)
-
-# Run backtest
-backtester = WalkForwardBacktester(initial_train_window=120)
-result = backtester.run(indicators, target, groups, config)
-
-print(f"R² OOS: {result.metrics['r2_oos']:.4f}")
-print(f"Hit Ratio: {result.metrics['hit_ratio']:.2%}")
-```
-
-### Command Line
-
+For cached FRED data (no API key needed):
 ```bash
-# Run with sample data
-python -m src.main --use-sample-data --save-plots
-
-# Run with FRED data (requires API key)
-export FRED_API_KEY="your_api_key"
-python -m src.main --start-date 1959-01-01
-
-# Customize parameters
-python -m src.main \
-    --n-factors 10 \
-    --t-stat-threshold 1.5 \
-    --train-window 120 \
-    --regime-window 12
+python run_oos_real_data.py
 ```
 
-## Key Features
+Run the full test suite:
+```bash
+python test_all.py
+```
 
-### 1. Look-Ahead Bias Prevention
-- Uses ALFRED (Archival FRED) for point-in-time data
-- Ensures only data available at time t-1 is used for forecasts at time t
+## SSRF Architecture
 
-### 2. Campbell-Thompson R² OOS
-- Out-of-sample R² metric relative to historical mean benchmark
-- Statistically rigorous evaluation framework
+| Stage | Purpose |
+|-------|---------|
+| 1. Group-wise Screening | Filter features by |t-stat| within economic categories |
+| 2. Predictive Scaling | Scale by univariate predictive slopes |
+| 3. Factor Extraction | PCA dimensionality reduction to K factors |
+| 4. Regime Interaction (opt.) | Volatility proxy × factor interaction terms |
+| **Final** | ElasticNetCV / XGBoost / Ensemble regression |
 
-### 3. Nested Cross-Validation
-- Time series CV within training window for hyperparameter selection
-- Maintains temporal order to prevent data leakage
+## Key Results
 
-### 4. Regime-Dependent Modeling
-- Volatility-based regime proxy captures market conditions
-- Interaction terms allow factor sensitivities to vary with regime
-
-## Evaluation Metrics
-
-- **Campbell-Thompson R² OOS**: Relative performance vs. historical mean
-- **Direction Accuracy (Hit Ratio)**: Percentage of correct directional predictions
-- **Sharpe Ratio**: Risk-adjusted returns
-- **Calmar Ratio**: Return relative to maximum drawdown
-- **Maximum Drawdown**: Peak-to-trough decline
-- **Statistical Tests**: Diebold-Mariano and Clark-West tests
-
-## FRED-MD Indicator Categories
-
-1. **Output and Income**: GDPPOT, GDPC1, GNP, etc.
-2. **Labor Market**: UNRATE, PAYEMS, HOUST, etc.
-3. **Inflation and Prices**: CPIAUCSL, PPIFGS, GDPDEF, etc.
-4. **Interest Rates and Spreads**: TB3MS, GS10, TEDRATE, etc.
-5. **Consumption and Sentiment**: CONS, CONSPD, UMCSENTI, etc.
+- **Direction accuracy**: 58-70% hit ratio across OOS tests
+- **Best Sharpe**: 0.51 (True OOS 2000-2026, forward alignment)
+- **Defensive sectors** (Consumer Staples, Healthcare) most predictable (R² OOS +0.02 to +0.04)
+- **Asymmetric leverage** (2.5x long / 0.25x short) improves Sharpe 2-3x over symmetric
+- See [docs/performance_log.md](docs/performance_log.md) and [docs/leverage_sweep_summary.md](docs/leverage_sweep_summary.md)
 
 ## References
 
-- McCracken, M. W. & Ng, S. (2016). FRED-MD: A Monthly Database for Macroeconomic Research
-- Huang, D. et al. (2022). Scaled PCA: A New Approach to Dimension Reduction
-- Campbell, J. Y. & Thompson, S. B. (2008). Predicting Excess Stock Returns Out of Sample
-- Zou, H. & Hastie, T. (2005). Regularization and variable selection via the Elastic Net
-- Goyal, A. & Welch, I. (2008). A Comprehensive Look at the Empirical Performance of Equity Premium Prediction
-
-## License
-
-MIT License
+- McCracken & Ng (2016). FRED-MD: A Monthly Database for Macroeconomic Research
+- Huang et al. (2022). Scaled PCA: A New Approach to Dimension Reduction
+- Campbell & Thompson (2008). Predicting Excess Stock Returns Out of Sample
+- Zou & Hastie (2005). Regularization and variable selection via the Elastic Net
+- Goyal & Welch (2008). A Comprehensive Look at Equity Premium Prediction
