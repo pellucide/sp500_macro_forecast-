@@ -391,6 +391,8 @@ class StatisticalTests:
         Clark-West test for nested model comparison.
 
         Tests if the more complex model adds significant predictive power.
+        The standard CW adjustment is: f_t = (y - mean)² - (y - pred)²
+        This tests whether the complex model outperforms the benchmark.
 
         Args:
             actual: Actual values
@@ -406,18 +408,22 @@ class StatisticalTests:
         e_complex = actual - predictions
         e_benchmark = actual - benchmark
 
-        # Squared errors
-        se_complex = e_complex ** 2
-        se_benchmark = e_benchmark ** 2
+        # Clark-West adjustment (standard formula)
+        # f_t = (y - ȳ)² - (y - ŷ)² where ȳ is the mean of actual
+        # adj = f_t + (ŷ - ȳ)² (Clark-West 2007 adjustment for nested models)
+        y_mean = np.mean(actual)
 
-        # Clark-West adjustment
-        adj = e_benchmark ** 2 - e_complex ** 2 - e_complex * (e_complex - e_benchmark)
+        # Standard adjustment term
+        adj = (actual - y_mean) ** 2 - e_complex ** 2
+
+        # Add the CW adjustment term for nested models
+        adj = adj + (predictions - y_mean) ** 2
 
         # T-statistic
         t_stat = np.mean(adj) / (np.std(adj) / np.sqrt(len(adj)))
 
-        # P-value
-        p_value = 2 * (1 - stats.t.cdf(abs(t_stat), df=len(adj) - 1))
+        # P-value (one-sided test - we want to know if complex > benchmark)
+        p_value = 1 - stats.t.cdf(t_stat, df=len(adj) - 1)
 
         return t_stat, p_value
 
@@ -430,7 +436,12 @@ class StatisticalTests:
         """
         Compute confidence interval for R² OOS.
 
-        Uses asymptotic approximation.
+        Uses asymptotic approximation. The standard error of R² OOS is approximately:
+        SE(R²) ≈ 2 * (1 - R²) / sqrt(n) for large n
+
+        Note: Fisher z-transform is NOT appropriate for R² OOS because R² OOS
+        can be negative with no lower bound (-∞), while Fisher z is only valid
+        for correlation coefficients r ∈ [-1, 1].
 
         Args:
             r2_oos: Observed R² OOS
@@ -442,26 +453,26 @@ class StatisticalTests:
         """
         from scipy import stats
 
-        z = stats.norm.ppf((1 + confidence) / 2)
+        # Critical value from normal distribution
+        z_crit = stats.norm.ppf((1 + confidence) / 2)
 
-        # Fisher z-transformation
+        # Asymptotic standard error of R² OOS
+        # Based on the variance of sample R², approximately:
+        # Var(R²) ≈ 4 * (1 - R²)² / n  (asymptotically normal)
+        # So SE(R²) ≈ 2 * |1 - R²| / sqrt(n)
         if r2_oos >= 1:
-            z_hat = np.inf
-        elif r2_oos <= -1:
-            z_hat = -np.inf
+            se_r2 = 0.0
+        elif r2_oos <= -10:  # Very negative R² - use wider CI
+            se_r2 = 2 * abs(r2_oos) / np.sqrt(n)
         else:
-            z_hat = 0.5 * np.log((1 + r2_oos) / (1 - r2_oos))
+            se_r2 = 2 * abs(1 - r2_oos) / np.sqrt(n)
 
-        # Standard error of z
-        se_z = np.sqrt(2 / (n - 3))
+        # Confidence interval (asymptotically normal)
+        r2_lower = r2_oos - z_crit * se_r2
+        r2_upper = r2_oos + z_crit * se_r2
 
-        # Confidence interval for z
-        z_lower = z_hat - z * se_z
-        z_upper = z_hat + z * se_z
-
-        # Transform back
-        r2_lower = (np.exp(2 * z_lower) - 1) / (np.exp(2 * z_lower) + 1)
-        r2_upper = (np.exp(2 * z_upper) - 1) / (np.exp(2 * z_upper) + 1)
+        # Cap upper bound at 1
+        r2_upper = min(r2_upper, 1.0)
 
         return r2_lower, r2_upper
 
