@@ -220,8 +220,10 @@ class WalkForwardBacktester:
         actual_returns = y.loc[predictions.index]
 
         # Optional: Scale predictions to match target variance
-        # NOTE: Disabled by default - scaling amplifies noise and increases MSE
-        # Only enables when explicitly requested or scale_factor <= 5
+        # Only triggers when scale_predictions=True AND predictions are
+        # less volatile than training AND scale_factor in (1.0, 5].
+        # Direction (sign) is preserved (hit ratio unaffected), but Sharpe
+        # is modified since both mean and std scale proportionally.
         # FIXED: Use training period std only - no lookahead into test period
         if scale_predictions and len(predictions) > 10:
             pred_std = predictions.std()
@@ -243,7 +245,6 @@ class WalkForwardBacktester:
         benchmark = []
         test_data_start = len(y) - len(predictions)
         for i, test_date in enumerate(test_dates):
-            # FIXED: Use FIXED cutoff - no +i drift
             # benchmark_i should use all training data (before test period starts)
             y_before_test = y.iloc[:test_data_start]  # Fixed cutoff, no drift
             benchmark.append(y_before_test.mean())
@@ -448,7 +449,7 @@ class RollingBacktester:
     Rolling window backtester (alternative to expanding window).
     Uses fixed-size training windows.
 
-    NOTE: This class is currently a stub and not used.
+    NOTE: This class is currently a stub and not yet implemented.
     WalkForwardBacktester with expanding window is recommended.
     """
 
@@ -482,7 +483,6 @@ class RollingBacktester:
         verbose: bool = True
     ) -> BacktestResult:
         """Run rolling window backtest."""
-        # NOTE: Not implemented - use WalkForwardBacktester instead
         raise NotImplementedError(
             "RollingBacktester.run() is not implemented. "
             "Use WalkForwardBacktester with expanding window instead."

@@ -516,8 +516,8 @@ def main(args=None):
                         help='T-statistic threshold for screening')
     parser.add_argument('--regime-window', type=int, default=12,
                         help='Regime proxy window (months)')
-    parser.add_argument('--alpha', type=float, default=0.001,
-                        help='Elastic Net alpha')
+    parser.add_argument('--alpha', type=float, default=0.0001,
+                        help='Elastic Net alpha (default 0.0001; matches ModelConfig.ELASTIC_NET_ALPHA)')
     parser.add_argument('--l1-ratio', type=float, default=0.5,
                         help='Elastic Net L1 ratio')
     parser.add_argument('--prediction-scale', type=float, default=1.0,

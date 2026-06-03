@@ -4,6 +4,7 @@ State-Dependent Supervised Screening & Regularized Factor (SSRF) Architecture
 """
 
 import os
+import warnings
 from pathlib import Path
 
 # Project root directory
@@ -27,10 +28,14 @@ class DataConfig:
     FRED_API_KEY = os.getenv("FRED_API_KEY", "")
 
     # If FRED_API_KEY is not set, you can set it directly here for development
-    # IMPORTANT: For production, use environment variable
+    # IMPORTANT: For production or sharing code, set the FRED_API_KEY env var instead.
     if not FRED_API_KEY:
-        # Fallback for testing - remove or set via environment in production
         FRED_API_KEY = "48f0923658be7d90ba311c4a55138377"
+        warnings.warn(
+            "Using hardcoded FRED API key. Set FRED_API_KEY environment variable "
+            "to remove this warning and avoid exposing the key in source control.",
+            stacklevel=2
+        )
 
     # FRED-MD indicator categories (updated with verified working codes)
     INDICATOR_CATEGORIES = {

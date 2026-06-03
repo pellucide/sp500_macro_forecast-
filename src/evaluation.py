@@ -457,7 +457,7 @@ class StatisticalTests:
             actual: Actual values
             pred1: Predictions from model 1
             pred2: Predictions from model 2
-            h: Forecast horizon
+            h: Forecast horizon (unused; maintained for API compatibility)
 
         Returns:
             Tuple of (DM statistic, p-value)

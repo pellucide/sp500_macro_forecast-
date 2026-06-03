@@ -284,7 +284,7 @@ class HiddenMarkovRegimeDetector:
             self.model = hmm.GaussianHMM(
                 n_components=self.config.n_regimes,
                 covariance_type="full",
-                n_iter=100,
+                n_iter=1000,
                 random_state=42
             )
 
