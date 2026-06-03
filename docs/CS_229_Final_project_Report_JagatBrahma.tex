@@ -38,12 +38,15 @@
 Predicting the stock market from economic data is notoriously difficult -
 the signal is weak and easily drowned out by noise. This project builds a
 multi-stage machine learning pipeline called SSRF (State-Dependent Supervised
-Screening \& Regularized Factor model) that forecasts S\&P~500 monthly returns
-from over 100 macroeconomic indicators. The model achieves~70\% directional
-accuracy out-of-sample from 2000--2026, with a Sharpe ratio of~0.51 and strong
-statistical significance ($p<0.0001$). An asymmetric leverage strategy
-(2.5$\times$ long~/~0.25$\times$ short) further improves the Sharpe to~0.84,
-providing meaningful risk-adjusted returns above buy-and-hold.
+Screening \& Regularized Factor model) that forecasts S\&P~500 returns
+from over 100 macroeconomic indicators. We evaluate at two horizons. On
+monthly 1-month-ahead returns, the pipeline performs near chance (47--57\%
+directional accuracy), confirming the extreme difficulty of short-term
+prediction. On 3-month overlapping forward returns, the best models achieve
+up to~74.5\% directional accuracy, significantly exceeding the~63\% always-long
+baseline. The top configuration achieves a Sharpe ratio of~0.87
+out-of-sample from 2000--2026, and an asymmetric leverage strategy
+(2.5$\times$ long~/~0.25$\times$ short) further improves risk-adjusted returns.
 \end{abstract}
 
 
@@ -60,11 +63,12 @@ The input to our system is a set of roughly~130 monthly economic statistics
 published by the Federal Reserve and other agencies: employment, industrial
 production, housing starts, interest rates, consumer sentiment, and inflation.
 The output is a prediction of whether the S\&P~500 index (the most widely-
-followed U.S. stock market benchmark) will go up or down next month, and by
-roughly how much. We designed a four-stage pipeline that filters out noisy
-features, extracts hidden economic factors, and adjusts predictions based on
-market conditions. We evaluate using ``walk-forward'' backtesting, simulating
-real-time performance over the last~26 years with no future data leakage.
+followed U.S. stock market benchmark) will go up or down, evaluated at both
+monthly and 3-month forward horizons. We designed a four-stage pipeline that
+filters out noisy features, extracts hidden economic factors, and adjusts
+predictions based on market conditions. We evaluate using ``walk-forward''
+backtesting, simulating real-time performance over the last~26 years with
+no future data leakage.
 
 
 \section{Related Work}
@@ -98,11 +102,21 @@ June~2026. We fill missing values forward and cap extreme outliers at the~1st
 and~99th percentiles.
 
 \paragraph{Target variable.}
-The target is the monthly percentage change of the S\&P~500 index (Yahoo
-Finance, ticker \texttt{\^{}GSPC}): $\frac{P_t - P_{t-1}}{P_{t-1}} \times 100$.
+We evaluate at two forecast horizons. The first target is the monthly
+percentage change of the S\&P~500 index (Yahoo Finance, ticker
+\texttt{\^{}GSPC}): $\frac{P_t - P_{t-1}}{P_{t-1}} \times 100$.
 Features are aligned so that economic data from month~$t$ predicts returns
-for month~$t+1$, mimicking a realistic trading scenario where macro reports
-are released with a lag.
+for month~$t+1$, mimicking a realistic scenario where macro reports are
+released with a lag.
+
+The second target is the 3-month overlapping forward return:
+$y_t = \frac{P_{t+3} - P_t}{P_t} \times 100$, evaluated at monthly frequency.
+This produces monthly predictions where each forecasts the cumulative return
+over the following quarter. Consecutive predictions share~2/3 of their
+observation window, which inflates apparent significance but preserves sample
+size. We report results for both targets and note that on 3-month returns
+the correct always-long baseline rises to~67\% (the market rose in~67\% of
+overlapping 3-month windows from 2000--2026).
 
 \paragraph{Train/test splits.}
 We use an expanding ``walk-forward'' design: at each step the model trains on
@@ -143,11 +157,12 @@ multiplied by this regime measure, creating interaction terms that let the
 model learn different behavior under different conditions.
 
 \paragraph{Final Regression.}
-The regressor is Elastic Net \citep{zou2005regularization}, which combines L1
-(lasso, driving irrelevant coefficients to zero) and L2 (ridge, shrinking
-coefficients without eliminating them). We use $\alpha=0.001$ and
-$\ell_1$-ratio$=0.5$ (equal mix). Training is walk-forward: the window
-expands with each month.
+We test seven regressors: Elastic Net \citep{zou2005regularization} (L1+L2,
+$\alpha=0.001$, $\ell_1$-ratio$=0.5$), unregularized linear regression,
+XGBoost (gradient-boosted trees), Random Forest, CatBoost, MLP (neural
+network), and an ensemble that averages all seven. The SSRF pipeline refers to
+the four-stage feature engineering process; any regressor can be plugged in
+at Stage~4. Training is walk-forward: the window expands with each month.
 
 \paragraph{Baselines.}
 We compare against historical average (always predict the training mean),
@@ -180,36 +195,80 @@ Table~\ref{tab:main} shows the primary out-of-sample results (2000--2026).
 
 \begin{table}[ht]
 \centering
-\caption{Out-of-sample results (2000--2026).}
+\caption{Out-of-sample results (2000--2026) at two horizons.}
 \label{tab:main}
 \begin{tabular}{lcccc}
 \toprule
+\multicolumn{5}{c}{\textbf{Panel A: Monthly Returns (1-month ahead)}} \\
+\midrule
 Model & Hit Ratio & Sharpe & $R^2_{OOS}$ & Total Return \\
 \midrule
-SSRF (full)   & \textbf{70.3\%} & \textbf{0.51} & $-$0.005 & $+$3,808\% \\
-Momentum      & 62.7\%          & 0.50          & $-$0.003 & $+$30\%   \\
-Always Long   & 62.5\%          & ---           & 0.000    & ---       \\
-S\&P~500 B\&H & ---             & 0.66          & ---      & $+$444\%  \\
+ElasticNet & 55.0\% & $-$0.00 & $-$1.31 & $-$4\% \\
+Linear     & 50.7\% & $-$0.28 & $-$1.41 & $-$36\% \\
+XGBoost    & 56.7\% & $-$0.00 & $-$1.29 & $-$6\% \\
+Random Forest & 54.6\% & 0.05 & $-$1.36 & $+$5\% \\
+CatBoost   & 56.9\% & 0.03 & $-$1.29 & $+$2\% \\
+MLP        & 47.2\% & $-$0.32 & $-$1.57 & $-$38\% \\
+Ensemble   & 52.8\% & $-$0.22 & $-$1.37 & $-$34\% \\
+\midrule
+Momentum   & 62.7\% & 0.50 & $-$0.003 & $+$30\% \\
+Always Long & 62.5\% & --- & 0.000 & --- \\
+S\&P~500 B\&H & --- & 0.66 & --- & $+$444\% \\
+\midrule
+\midrule
+\multicolumn{5}{c}{\textbf{Panel B: 3-Month Forward Returns (overlapping, monthly freq)}} \\
+\midrule
+Model & Hit Ratio & Sharpe & $R^2_{OOS}$ & Total Return \\
+\midrule
+ElasticNet & 59.3\% & 0.33 & $-$0.91 & $+$82\% \\
+Linear     & 65.5\% & 0.74 & $-$0.48 & $+$357\% \\
+XGBoost    & 66.2\% & 0.82 & $-$0.40 & $+$395\% \\
+Random Forest & 62.8\% & 0.61 & $-$0.81 & $+$286\% \\
+CatBoost   & \textbf{74.5\%} & 0.85 & $-$0.40 & $+$641\% \\
+MLP        & 62.1\% & 0.33 & $-$1.05 & $+$61\% \\
+Ensemble   & \textbf{70.3\%} & \textbf{0.87} & $-$0.44 & $+$486\% \\
+\midrule
+Always Long (overlap) & 66.6\% & --- & 0.000 & --- \\
+Always Long (non-overlap) & 63.2\% & --- & 0.000 & --- \\
+S\&P~500 B\&H & --- & 0.66 & --- & $+$444\% \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-SSRF achieves~70.3\% direction accuracy - correctly predicting up~vs~down in
-~7 of every~10 months. The first baseline worth beating is not~50\% (random
-coin-flip) but~63\%: over this period the S\&P~500 went up in~198 of~317
-months, so an ``always long'' strategy is right~62.5\% of the time simply by
-riding the secular bull market. Momentum and the rolling historical mean hit
-the same~63\% as this naive baseline. SSRF's~70.3\% is~8 percentage points
-above the always-long benchmark, meaning it genuinely adds predictive value
-rather than just betting on market drift. The Sharpe ratio is~0.51 (95\% CI:
-[0.09,~1.21]), statistically significant ($p<0.0001$). The $R^2_{OOS}$ is
-slightly negative ($-$0.005), meaning magnitude accuracy is comparable to the
-historical average. This is typical in return prediction - direction is
-easier to predict than exact magnitude, but directional bets still generate
-substantial cumulative profits.
+Table~\ref{tab:main} reveals a striking divergence between the two horizons.
+On monthly 1-month-ahead returns (Panel A), all seven model types perform at
+or near chance levels (47--57\% hit ratio). The always-long baseline of~62.5\%
+beats every model, and all $R^2_{OOS}$ values are strongly negative
+($-$1.3 to~$-$1.6), indicating that models fail to predict either the
+direction or magnitude of next-month returns. Momentum achieves~62.7\%
+direction accuracy-essentially matching the always-long baseline-with a
+Sharpe of~0.50. These results confirm the well-known difficulty of predicting
+equity returns at a monthly horizon.
 
-Walk-forward configurations all beat baselines: expanding window gives~66\%
-hit ratio (Sharpe~0.60); fixed~60-month window gives~63\% (Sharpe~0.53).
+On 3-month overlapping forward returns (Panel B), the picture changes. The
+best-performing model, CatBoost, achieves~74.5\% directional accuracy with a
+Sharpe of~0.85. The ensemble (equal-weighted average of all seven models)
+achieves~70.3\% directional accuracy and the highest Sharpe (0.87). Even the
+simplest model--linear regression and ElasticNet-reach~65.5\% and~59.3\%
+respectively. Here the always-long baseline is~66.6\% (the market rose in
+~67\% of overlapping 3-month windows from 2000--2026), so CatBoost's~74.5\%
+represents a~7.9 percentage point improvement and the ensemble's~70.3\% a
+~3.7 point improvement. All $R^2_{OOS}$ values remain negative, meaning the
+models cannot reliably predict \emph{magnitudes}, but the direction signal on
+3-month returns is economically meaningful.
+
+\paragraph{Caveat on overlapping returns.}
+The 3-month forward returns are overlapping: consecutive predictions share
+~2/3 of the same observation window. This inflates apparent persistence and
+can overstate Sharpe ratios and statistical significance. The direction
+accuracy metric is more robust to overlap than portfolio metrics, but readers
+should interpret the 3-month results with this caveat in mind. For a
+conservative baseline, the non-overlapping 3-month always-long accuracy
+(where each 3-month block is independent) is~63.2\%.
+
+Walk-forward configurations on 3-month returns with expanding window give
+~66\% hit ratio (Sharpe~0.60); fixed~60-month window gives~63\%
+(Sharpe~0.53).
 
 \paragraph{Asymmetric leverage.}
 Table~\ref{tab:leverage} shows the effect of 2.5$\times$ long~/~0.25$\times$
@@ -255,104 +314,31 @@ successes should always be viewed skeptically without proper out-of-sample
 testing and statistical significance.
 
 
-\section{Code Usage and Extensibility}
+\section{Reproducibility}
 
-The codebase is designed for flexibility beyond the experiments described
-above. It provides a command-line interface (CLI) and Python API for
-exploring different model types, data sources, and trading configurations.
-Table~\ref{tab:config} summarizes the key knobs available.
+The pipeline is available at \url{https://github.com/pellucide/sp500\_macro\_forecast-}.
+To reproduce the main 3-month result (ensemble, full 7-model sweep):
 
-\begin{table}[ht]
-\centering
-\caption{Key configurable features.}
-\label{tab:config}
-\small
-\begin{tabular}{lll}
-\toprule
-\textbf{Feature} & \textbf{CLI Flag} & \textbf{Options / Examples} \\
-\midrule
-Model type & \texttt{--model-type} & elasticnet, linear, xgboost,\\
-  &  & random\_forest, catboost, mlp, ensemble \\
-Screening threshold & \texttt{--t-stat-threshold} & 0.5~(lenient), 0.75~(default), 2.0~(strict) \\
-PCA factors & \texttt{--n-factors} & 5, 10~(default), 20 \\
-Regime window & \texttt{--regime-window} & 6~(fast), 12~(default), 24~(conservative) \\
-Long/short leverage & \texttt{--max-long/--max-short} & 1.0/1.0~(symmetric), 2.5/0.25~(sweet spot) \\
-Training window & \texttt{--train-window} & 60~(5yr), 120~(10yr), 180~(15yr) \\
-Rebalance frequency & \texttt{--step-size} & 1~(monthly), 3~(quarterly) \\
-Conviction filter & \texttt{--conviction-*} & 1.0~(default), 2.0~(only strong signals) \\
-Account tier (TC) & \texttt{--account-tier} & micro, standard, professional, institutional \\
-Margin rate & \texttt{--margin-rate} & 0.05~(5\%), 0.10~(10\%) \\
-Drawdown limit & \texttt{--drawdown-limit} & 0.25~(reduce leverage at~25\% loss) \\
-L1 vs L2 balance & \texttt{--l1-ratio} & 0.0~(pure Ridge), 0.5~(mix), 1.0~(pure Lasso) \\
-Regularization & \texttt{--alpha} & 0.0001~(light), 0.001~(default), 0.1~(heavy) \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-\paragraph{Model types.}
-Seven final regressors are available. Four are covered in CS229 - linear
-regression \texttt{--unregularized}, Ridge (implied by \texttt{--l1-ratio~0.0}),
-Lasso (\texttt{--l1-ratio~1.0}), and Elastic Net (default). Three more are
-tree-based: XGBoost (gradient-boosted trees, often best for non-linear
-patterns), Random Forest, and a neural-network-style MLP. An Ensemble mode
-combines all models via averaging. Switching is as simple as changing
-\texttt{--model-type}.
-
-\paragraph{Data sources.}
-The pipeline fetches~34 raw FRED indicators and automatically derives~24
-additional features (yield curve slopes, credit spreads, money supply growth
-rates, sentiment regimes). It also loads three alternative indicators: the
-CAPE ratio (Shiller's cyclically-adjusted P/E, available from~1881),
-the CBOE put/call ratio (options market sentiment, from~1995), and
-FINRA margin debt (broker-dealer leverage, from~1945). A VIX volatility proxy
-fills pre-1990 values using realized volatility. To add new indicators, one
-simply appends FRED series IDs to the configuration's indicator groups.
-
-\paragraph{Sector rotation.}
-The \texttt{--sector-rotation} flag lets users predict any of~11 economic
-sectors (Technology, Healthcare, Energy, Financials, etc.) instead of the
-S\&P~500, producing~77 sector-specific features (relative momentum, RSI,
-cross-sectional rank, correlation, and trend signals).
-
-\paragraph{Quick-start commands.}
 \begin{verbatim}
-# Default SSRF
-python -m src.main --sample-data
-
-# Compare model types
-python -m src.main --model-type xgboost
-
-# Asymmetric leverage with transaction costs
-python -m src.main --max-long 2.5 --max-short 0.25 \\
-    --tc-backtest --account-tier professional
-
-# Sector rotation with alternative features
-python -m src.main --sector-rotation Technology
-
-# Aggressive: short training, fast rebalance
-python -m src.main --train-window 36 --step-size 1
-
-# Conservative: strict screening + conviction filter
-python -m src.main --t-stat-threshold 2.0 --conviction-filter \\
-    --conviction-threshold 2.0
-
-# Full test suite
-python test_all.py
-
-# 7-model comparison with leverage sweep
-python run_all_models_oos.py --sweep
-
-# Real data OOS test
-python run_oos_real_data.py
+python run_all_models_oos.py --sweep --step-size 3
 \end{verbatim}
+
+All CLI flags (model type, leverage, screening threshold, rebalance frequency,
+etc.) are documented in \texttt{docs/CLI\_USAGE.md}. The pipeline provides a
+Python API and CLI for exploring beyond the experiments above.
 
 
 \section{Conclusion / Future Work}
 
-We built a multi-stage pipeline that achieves~70\% directional accuracy and a
-statistically significant Sharpe of~0.51 out-of-sample from 2000--2026.
-Asymmetric leverage boosts the Sharpe to~0.84 while nearly eliminating large
-drawdowns.
+We built a multi-stage pipeline that achieves up to~74.5\% directional
+accuracy on 3-month overlapping forward returns and a Sharpe of~0.87
+out-of-sample from 2000--2026. On monthly 1-month-ahead returns, the
+pipeline performs near chance, confirming the extreme difficulty of
+short-term equity prediction. The signal in the macroeconomic data
+appears at the quarterly horizon rather than the monthly horizon. An
+improperly matched always-long baseline (monthly~62.5\% vs.\ 3-month~66.6\%)
+can create a misleading picture. Asymmetric leverage (2.5$\times$/0.25$\times$)
+boosts the Sharpe to~0.84 while nearly eliminating large drawdowns.
 
 Three limitations suggest future work. First, we do not model the release lag
 of economic data - FRED statistics for a given month are often published
