@@ -108,7 +108,10 @@ The paper claimed "70% directional accuracy on monthly returns" but the actual t
 
 See [leverage_sweep_summary.md](leverage_sweep_summary.md) for full sweep results.
 
-Key finding: Asymmetric leverage (2.5x long / 0.25x short) boosts Sharpe from ~0.87 to ~0.84, with max drawdown reduced from equity-like to bond-like levels.
+Key finding: Asymmetric leverage (2.5x long / 0.25x short) impact varies by model:
+- **ElasticNet (weakest model)**: Sharpe improves from 0.33 to 0.67 (2.0x), max drawdown from -23.9% to -10.6%
+- **Ensemble (strongest model)**: Sharpe decreases from 0.87 to 0.81, max drawdown from -6.3% to -11.5%
+- **Primary benefit is risk management**: reduced short exposure limits losses from the model's weak short-side predictions, at the cost of Sharpe for the best models
 
 ---
 

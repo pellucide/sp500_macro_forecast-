@@ -43,10 +43,11 @@ from over 100 macroeconomic indicators. We evaluate at two horizons. On
 monthly 1-month-ahead returns, the pipeline performs near chance (47--57\%
 directional accuracy), confirming the extreme difficulty of short-term
 prediction. On 3-month overlapping forward returns, the best models achieve
-up to~74.5\% directional accuracy, significantly exceeding the~63\% always-long
+up to~74.5\% directional accuracy, exceeding the~67\% overlapping always-long
 baseline. The top configuration achieves a Sharpe ratio of~0.87
-out-of-sample from 2000--2026, and an asymmetric leverage strategy
-(2.5$\times$ long~/~0.25$\times$ short) further improves risk-adjusted returns.
+out-of-sample from 2000--2026. An asymmetric leverage strategy
+(2.5$\times$ long~/~0.25$\times$ short) boosts Sharpe for long-biased models
+but has mixed effects on the strongest predictors (CatBoost, Ensemble).
 \end{abstract}
 
 
@@ -151,7 +152,7 @@ or inflation dynamics.
 
 \paragraph{Stage 4: Regime Interaction.}
 Markets behave differently in calm vs.\ turbulent periods. We measure the
-current ``regime'' using rolling~12-month volatility --- essentially asking
+current ``regime'' using rolling~12-month volatility - essentially asking
 ``is this market calmer or more volatile than usual?'' Each factor is
 multiplied by this regime measure, creating interaction terms that let the
 model learn different behavior under different conditions. We also test
@@ -288,13 +289,17 @@ Model & Ann.\ Return & Ann.\ Vol. & Sharpe & Max.\ Drawdown \\
 XGBoost & 8.6\% & 10.4\% & \textbf{0.84} & $-$9.1\% \\
 Ensemble & 10.1\% & 12.8\% & 0.81 & $-$11.5\% \\
 Linear & 9.4\% & 13.1\% & 0.75 & $-$9.4\% \\
-S\&P~500 B\&H & 8.9\% & 13.4\% & 0.66 & $-$46.7\% \\
+S\&P~500 B\&H & 9.5\% & 13.9\% & 0.68 & $-$46.7\% \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-Asymmetric leverage boosts Sharpe substantially (e.g., XGBoost:~0.84 vs.\
-$<$0.7 symmetric) while cutting maximum drawdown from~$-$47\% to~$-$9\%.
+Asymmetric leverage has model-dependent effects. For the strongest
+models (Ensemble), Sharpe decreases slightly (0.87 to~0.81) at
+2.5$\times$/0.25$\times$, while for weaker models (ElasticNet) Sharpe
+more than doubles (0.33 to~0.67). The primary benefit across all models is
+maximum drawdown reduction from equity-like levels ($-$47\% B\&H) to
+bond-like levels ($-$9\% to~$-$12\%).
 
 When applied to individual sectors, the model performs best on defensive
 sectors: Consumer Staples ($R^2_{OOS}=+0.04$,~64\% hit ratio) and Healthcare
@@ -337,7 +342,10 @@ short-term equity prediction. The signal in the macroeconomic data
 appears at the quarterly horizon rather than the monthly horizon. An
 improperly matched always-long baseline (monthly~62.5\% vs.\ 3-month~66.6\%)
 can create a misleading picture. Asymmetric leverage (2.5$\times$/0.25$\times$)
-boosts the Sharpe to~0.84 while nearly eliminating large drawdowns.
+reduces maximum drawdowns from equity-like ($-$47\%) to bond-like ($-$9\% to
+$-$12\%) levels, though it slightly reduces Sharpe for the strongest
+predictors (Ensemble:~0.87 to~0.81) while more than doubling it for
+weaker models (ElasticNet:~0.33 to~0.67).
 
 Three limitations suggest future work. First, we do not model the release lag
 of economic data - FRED statistics for a given month are often published

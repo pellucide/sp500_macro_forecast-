@@ -390,14 +390,21 @@ if __name__ == "__main__":
                     traceback.print_exc()
                 sys.stdout.flush()
 
-        # Compute B&H from 3-month forward returns
+        # Compute B&H from non-overlapping forward returns
+        # (target from load_forward_returns is overlapping monthly frequency;
+        #  take every FORWARD_HORIZON-th observation for non-overlapping quarters)
         _, target = load_forward_returns(FORWARD_HORIZON)
         if target is not None and len(target) > 0:
-            bh_cum = (1 + target.values).prod() - 1
-            n_years = len(target) / 12
-            bh_ann = (1 + bh_cum) ** (1 / n_years) - 1
-            bh_vol = target.std() * np.sqrt(12 / FORWARD_HORIZON)
-            bh_sharpe = bh_ann / bh_vol if bh_vol > 0 else 0
+            non_overlap = target.iloc[::FORWARD_HORIZON]
+            if len(non_overlap) > 1:
+                bh_cum = (1 + non_overlap.values).prod() - 1
+                n_years = len(non_overlap) * FORWARD_HORIZON / 12
+                bh_ann = (1 + bh_cum) ** (1 / n_years) - 1
+                bh_vol = non_overlap.std() * np.sqrt(12 / FORWARD_HORIZON)
+                bh_sharpe = bh_ann / bh_vol if bh_vol > 0 else 0
+            else:
+                bh_ann = 0.09
+                bh_sharpe = 0.66
         else:
             bh_ann = 0.09
             bh_sharpe = 0.66
