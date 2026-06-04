@@ -120,7 +120,7 @@ overlapping 3-month windows from 2000--2026).
 
 \paragraph{Train/test splits.}
 We use an expanding ``walk-forward'' design: at each step the model trains on
-all data up to the current month and predicts the next month. The first~60
+all data up to the current month and predicts the next month. The first~120
 months form the initial training set. For a cleaner evaluation, we also fix a
 split at January~2000 - the model trains only on pre-2000 data and is
 evaluated strictly on 2000--2026 with no retraining (``true OOS'').
@@ -151,16 +151,18 @@ or inflation dynamics.
 
 \paragraph{Stage 4: Regime Interaction.}
 Markets behave differently in calm vs.\ turbulent periods. We measure the
-current ``regime'' using rolling~12-month volatility - essentially asking
+current ``regime'' using rolling~12-month volatility --- essentially asking
 ``is this market calmer or more volatile than usual?'' Each factor is
 multiplied by this regime measure, creating interaction terms that let the
-model learn different behavior under different conditions.
+model learn different behavior under different conditions. We also test
+additional regime indicator variables (using Hidden Markov Model and
+volatility-based detectors) as supplementary features.
 
 \paragraph{Final Regression.}
 We test seven regressors: Elastic Net \citep{zou2005regularization} (L1+L2,
 $\alpha=0.001$, $\ell_1$-ratio$=0.5$), unregularized linear regression,
 XGBoost (gradient-boosted trees), Random Forest, CatBoost, MLP (neural
-network), and an ensemble that averages all seven. The SSRF pipeline refers to
+network), and an ensemble averaging two models (Linear + XGBoost). The SSRF pipeline refers to
 the four-stage feature engineering process; any regressor can be plugged in
 at Stage~4. Training is walk-forward: the window expands with each month.
 
@@ -247,7 +249,7 @@ equity returns at a monthly horizon.
 
 On 3-month overlapping forward returns (Panel B), the picture changes. The
 best-performing model, CatBoost, achieves~74.5\% directional accuracy with a
-Sharpe of~0.85. The ensemble (equal-weighted average of all seven models)
+Sharpe of~0.85. The ensemble (equal-weighted average of Linear and XGBoost)
 achieves~70.3\% directional accuracy and the highest Sharpe (0.87). Even the
 simplest model--linear regression and ElasticNet-reach~65.5\% and~59.3\%
 respectively. Here the always-long baseline is~66.6\% (the market rose in
@@ -300,10 +302,7 @@ sectors: Consumer Staples ($R^2_{OOS}=+0.04$,~64\% hit ratio) and Healthcare
 ($R^2_{OOS}=-1.94$) and Financials ($R^2_{OOS}=-1.04$).
 
 \paragraph{What didn't work.}
-Several experiments failed or disappointed. The regime interaction stage
-(Stage~4) was tested early and disabled for final experiments because it
-consistently hurt out-of-sample performance - the interaction terms added
-more noise than signal. Extreme leverage (25$\times$ long) destroyed every
+Several experiments failed or disappointed. Extreme leverage (25$\times$ long) destroyed every
 portfolio, with 72--84\% drawdowns across all model types. The $R^2_{OOS}$
 remains negative in all configurations - the model cannot predict return
 magnitudes, only direction.  Transaction costs, even at professional-tier
@@ -342,10 +341,11 @@ boosts the Sharpe to~0.84 while nearly eliminating large drawdowns.
 
 Three limitations suggest future work. First, we do not model the release lag
 of economic data - FRED statistics for a given month are often published
-weeks later. Second, our regime detection (simple volatility percentile) could
-be replaced with a hidden Markov model for more accurate state estimation.
-Third, transaction costs were tested only in a limited analysis; a production
-system would need to account for slippage and market impact.
+weeks later. Second, the core regime proxy (rolling~12-month volatility
+percentile) could be replaced with a hidden Markov model for more accurate
+state estimation. Third, transaction costs were tested only in a limited
+analysis; a production system would need to account for slippage and market
+impact.
 
 \vspace{2em}
 

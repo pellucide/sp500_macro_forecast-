@@ -222,8 +222,9 @@ class WalkForwardBacktester:
         # Optional: Scale predictions to match target variance
         # Only triggers when scale_predictions=True AND predictions are
         # less volatile than training AND scale_factor in (1.0, 5].
-        # Direction (sign) is preserved (hit ratio unaffected), but Sharpe
-        # is modified since both mean and std scale proportionally.
+        # Effect: uniform scaling factor k leaves sign(pred) unchanged, so
+        # portfolio metrics (Sharpe, hit ratio, cumulative return) are unaffected.
+        # Only R² OOS changes because MSE uses prediction magnitudes.
         # FIXED: Use training period std only - no lookahead into test period
         if scale_predictions and len(predictions) > 10:
             pred_std = predictions.std()

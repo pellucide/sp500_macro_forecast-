@@ -154,9 +154,11 @@ def run_model(model_type, step_size=3, train_window=120,
         result.benchmark_predictions.values
     )
 
-    # R² OOS CI
+    # R² OOS CI (adjust for overlapping forecasts)
+    n_pred = len(result.predictions)
+    n_eff = n_pred * step_size / FORWARD_HORIZON if step_size < FORWARD_HORIZON else n_pred
     r2_lower, r2_upper = StatisticalTests.out_of_sample_r2_confidence_interval(
-        metrics.r2_oos, len(result.predictions)
+        metrics.r2_oos, n_eff
     )
 
     return {
