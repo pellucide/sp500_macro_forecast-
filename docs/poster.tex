@@ -1,5 +1,5 @@
 \documentclass[12pt]{article}
-\usepackage[paperwidth=36in,paperheight=24in,margin=0.8in]{geometry}
+\usepackage[paperwidth=36in,paperheight=20in,margin=0.8in]{geometry}
 \usepackage[utf8]{inputenc}
 \usepackage[T1]{fontenc}
 \usepackage{booktabs}
@@ -28,7 +28,8 @@
 \newcommand{\postersection}[1]{%
   \vspace{0.5em}
   \noindent
-  \colorbox{rhgreen}{\parbox{\dimexpr\columnwidth-2\fboxsep\relax}{\textcolor{rhbg}{\textbf{\LARGE #1}}}}\par
+  \hspace*{-\leftskip}%
+  \colorbox{rhgreen}{\parbox{\dimexpr\linewidth-\rightskip-2\fboxsep\relax}{\textcolor{rhbg}{\textbf{\LARGE #1}}}}\par
   \vspace{0.3em}
 }
 
@@ -51,18 +52,18 @@
 
 % ========== HEADER BANNER ==========
 \begin{tikzpicture}[remember picture, overlay]
-  \fill[rhgreen] (current page.north west) rectangle ([yshift=-3in]current page.north east);
+  \fill[rhgreen] (current page.north west) rectangle ([yshift=-2.5in]current page.north east);
   \node[anchor=center, text=rhbg, font=\fontsize{48}{54}\selectfont\bfseries]
     at ([yshift=-1.1in]current page.north) {Can Economic Data Predict the Stock Market?};
   \node[anchor=center, text=rhbg, font=\fontsize{24}{28}\selectfont]
     at ([yshift=-2.0in]current page.north) {A Machine Learning Approach to S\&P~500 Forecasting};
-  \node[anchor=north west, text=rhbg, font=\fontsize{16}{18}\selectfont]
+  \node[anchor=north west, text=rhbg, font=\fontsize{16}{18}\selectfont\bfseries]
     at ([xshift=0.8in, yshift=-0.3in]current page.north west) {Jagat Brahma \quad\textbar\quad jpbrahma@stanford.edu};
-  \node[anchor=north east, text=rhbg, font=\fontsize{16}{18}\selectfont]
+  \node[anchor=north east, text=rhbg, font=\fontsize{16}{18}\selectfont\bfseries]
     at ([xshift=-0.8in, yshift=-0.3in]current page.north east) {CS 229 --- Stanford University};
 \end{tikzpicture}
 
-\vspace{3.3in}
+\vspace{2.2in}
 
 % ========== PIPELINE DIAGRAM ==========
 \noindent
@@ -94,12 +95,14 @@
 % ========== CONTENT BACKGROUND BOX ==========
 \begin{tikzpicture}[remember picture, overlay]
   \draw[rounded corners=12pt, fill=rhcard, draw=rhborder, thick]
-    ([xshift=0.8in, yshift=-6.0in]current page.north west)
-    rectangle ++(34.4in, -16.5in);
+    ([xshift=0.8in, yshift=-4.8in]current page.north west)
+    rectangle ++(34.4in, -13in);
 \end{tikzpicture}
 
 % ========== THREE-COLUMN LAYOUT ==========
 \begin{multicols}{3}
+\setlength{\leftskip}{0.3in}%
+\setlength{\rightskip}{0.3in}%
 
 % --- PREDICTING ---
 \postersection{What We Built}
@@ -168,11 +171,12 @@ Seven models tested on the same pipeline:
 \vspace{0.3em}
 
 \noindent
+\hspace*{-\leftskip}%
 \begin{tikzpicture}
   \draw[rounded corners=6pt, fill=rhcard, draw=rhgreen, thick]
-    (0,0) rectangle (\columnwidth, 3.5in);
+    (0,0) rectangle (\linewidth-\rightskip, 3.5in);
   \node[anchor=north west, text=rhtext, inner sep=0.15in]
-    at (0,3.5in) {\parbox{\dimexpr\columnwidth-0.3in\relax}{
+    at (0,3.5in) {\parbox{\dimexpr\linewidth-\rightskip-0.3in\relax}{
       \renewcommand{\arraystretch}{1.3}
       \begin{tabular}{ll}
       \toprule
@@ -199,11 +203,12 @@ momentum (predict same direction as last month).
 
 \large
 \noindent
+\hspace*{-\leftskip}%
 \begin{tikzpicture}
   \draw[rounded corners=6pt, fill=rhcard, draw=rhgreen, thick]
-    (0,0) rectangle (\columnwidth, 4.2in);
+    (0,0) rectangle (\linewidth-\rightskip, 4.2in);
   \node[anchor=north west, text=rhtext, inner sep=0.15in]
-    at (0,4.2in) {\parbox{\dimexpr\columnwidth-0.3in\relax}{
+    at (0,4.2in) {\parbox{\dimexpr\linewidth-\rightskip-0.3in\relax}{
       \renewcommand{\arraystretch}{1.3}
       \begin{tabular}{lccc}
       \toprule
@@ -226,9 +231,10 @@ momentum (predict same direction as last month).
 \end{tikzpicture}
 
 \vspace{0.8em}
+\hspace*{-\leftskip}%
 \begin{tikzpicture}
   \draw[rounded corners=6pt, fill=rhcard, draw=rhgreen, thick]
-    (0,0) rectangle (\columnwidth, 2.2in);
+    (0,0) rectangle (\linewidth-\rightskip, 2.2in);
   \node[anchor=north west, text=rhgreen, font=\bfseries\LARGE]
     at (0.2in, 2.0in) {Key Takeaways};
   \node[anchor=north west, text=rhtext, font=\large]
