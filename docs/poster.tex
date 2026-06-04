@@ -55,7 +55,7 @@
   \fill[rhgreen] (current page.north west) rectangle ([yshift=-2.5in]current page.north east);
   \node[anchor=center, text=rhbg, font=\fontsize{48}{54}\selectfont\bfseries]
     at ([yshift=-1.1in]current page.north) {Can Economic Data Predict the Stock Market?};
-  \node[anchor=center, text=rhbg, font=\fontsize{24}{28}\selectfont]
+  \node[anchor=center, text=rhbg, font=\fontsize{24}{28}\selectfont\bfseries]
     at ([yshift=-2.0in]current page.north) {A Machine Learning Approach to S\&P~500 Forecasting};
   \node[anchor=north west, text=rhbg, font=\fontsize{16}{18}\selectfont\bfseries]
     at ([xshift=0.8in, yshift=-0.3in]current page.north west) {Jagat Brahma \quad\textbar\quad jpbrahma@stanford.edu};
@@ -236,15 +236,17 @@ momentum (predict same direction as last month).
   \draw[rounded corners=6pt, fill=rhcard, draw=rhgreen, thick]
     (0,0) rectangle (\linewidth-\rightskip, 2.2in);
   \node[anchor=north west, text=rhgreen, font=\bfseries\LARGE]
-    at (0.2in, 2.0in) {Key Takeaways};
+    at (0.2in, 2.5in) {Key Takeaways};
   \node[anchor=north west, text=rhtext, font=\large]
-    at (0.2in, 1.5in) {$\bullet$ \textbf{Monthly:} No model beats always-long (62.5\%)};
+    at (0.2in, 2.0in) {$\bullet$ \textbf{Monthly:} No model beats always-long (62.5\%)};
   \node[anchor=north west, text=rhtext, font=\large]
-    at (0.2in, 1.1in) {$\bullet$ \textbf{3-month:} CatBoost \& Ensemble beat baseline};
+    at (0.2in, 1.6in) {$\bullet$ \textbf{3-month (overlapping):} CatBoost 74.5\% beats baseline};
   \node[anchor=north west, text=rhtext, font=\large]
-    at (0.2in, 0.7in) {$\bullet$ No model predicts \textit{how much} market moves};
+    at (0.2in, 1.2in) {$\bullet$ \textbf{3-month (non-overlap):} RF 72.3\%, signal confirmed};
   \node[anchor=north west, text=rhtext, font=\large]
-    at (0.2in, 0.3in) {$\bullet$ Signal exists at quarterly horizon, not monthly};
+    at (0.2in, 0.8in) {$\bullet$ No model predicts \textit{how much} market moves};
+  \node[anchor=north west, text=rhtext, font=\large]
+    at (0.2in, 0.4in) {$\bullet$ Signal exists at quarterly horizon, not monthly};
 \end{tikzpicture}
 
 \columnbreak
@@ -264,6 +266,11 @@ risk-adjusted return (Sharpe 0.87).
 \textbf{But the signal is weak.} Models get \textit{direction} right but
 can't predict \textit{magnitude}. All have negative $R^2_{OOS}$, meaning a
 simple historical average predicts magnitudes better.
+
+\textbf{Non-overlapping evaluation confirms signal.} Using independent quarterly
+observations ({\tt --non-overlap} flag), Random Forest achieves 72.3\% hit
+ratio and MLP a 0.84 Sharpe -- confirming direction signal is not an artifact
+of overlapping windows.
 
 \textbf{Leverage helps manage risk.} Asymmetric sizing (2.5$\times$ long,
 0.25$\times$ short) cuts maximum loss from $\sim$47\% (buy \& hold) to

@@ -369,6 +369,83 @@ sp500_macro_forecast/
 
 ---
 
+---
+
+## Multi-Model OOS Comparison (`run_all_models_oos.py`)
+
+### Overview
+
+Compares 7 model types (elasticnet, linear, xgboost, random_forest, catboost, mlp, ensemble) on 3-month forward S&P 500 returns using walk-forward backtesting.
+
+### Basic Usage
+
+```bash
+# Run all 7 models (default leverage 1.0/1.0, quarterly rebalance)
+python run_all_models_oos.py
+
+# Run only specific models
+python run_all_models_oos.py elasticnet linear xgboost
+```
+
+### Leverage Sweep
+
+```bash
+# Sweep all 7 models × 4 leverage combos
+python run_all_models_oos.py --sweep
+
+# Sweep with custom leverage combos
+python run_all_models_oos.py --sweep --max-long 2.0 --max-short 0.5
+```
+
+### Overlapping vs Non-Overlapping 3-Month Returns
+
+```bash
+# Default: overlapping 3-month returns at monthly frequency
+# Consecutive predictions share 2/3 of the return window (inflates metrics)
+python run_all_models_oos.py --sweep
+
+# Non-overlapping 3-month returns at quarterly frequency
+# Sub-samples X and y to every 3rd month for independent observations
+# All metrics (R², Sharpe, DM) are valid without overlap adjustments
+python run_all_models_oos.py --sweep --non-overlap
+```
+
+### Position Sizing
+
+```bash
+# Symmetric long/short (default)
+python run_all_models_oos.py --max-long 1.0 --max-short 1.0
+
+# Asymmetric: more long, less short (reduces drawdown)
+python run_all_models_oos.py --max-long 2.5 --max-short 0.25
+```
+
+### Full CLI Reference
+
+```
+usage: run_all_models_oos.py [-h] [models ...]
+                             [--max-long MAX_LONG]
+                             [--max-short MAX_SHORT]
+                             [--margin-rate MARGIN_RATE]
+                             [--drawdown-limit DRAWDOWN_LIMIT]
+                             [--step-size STEP_SIZE]
+                             [--non-overlap]
+                             [--sweep]
+```
+
+| Argument | Default | Description |
+|----------|---------|-------------|
+| `models` | (all 7) | Model types to run: elasticnet, linear, xgboost, random_forest, catboost, mlp, ensemble |
+| `--max-long` | 1.0 | Max long exposure (1.0 = no margin) |
+| `--max-short` | 1.0 | Max short exposure (1.0 = full short) |
+| `--margin-rate` | 0.05 | Annual margin interest rate |
+| `--drawdown-limit` | 0.25 | Drawdown threshold for leverage reduction |
+| `--step-size` | 3 | Walk-forward step in months |
+| `--non-overlap` | — | Use non-overlapping 3-month returns (quarterly frequency, clean metrics) |
+| `--sweep` | — | Run all leverage combos × all models |
+
+---
+
 ## Getting Help
 
 ```bash

@@ -47,6 +47,16 @@ Run the full test suite:
 python test_all.py
 ```
 
+Run the 7-model comparison with 3-month overlapping returns (default):
+```bash
+python run_all_models_oos.py --sweep
+```
+
+Run the 7-model comparison with non-overlapping 3-month returns (clean metrics):
+```bash
+python run_all_models_oos.py --sweep --non-overlap
+```
+
 ## SSRF Architecture
 
 | Stage | Purpose |
@@ -66,12 +76,15 @@ python test_all.py
 | Monthly (1-month ahead) | CatBoost | 56.9% | 62.5% | ❌ Below baseline |
 | 3-month forward (overlapping) | CatBoost | **74.5%** | 66.6% | ✅ Beats baseline |
 | 3-month forward (overlapping) | Ensemble | **70.3%** | 66.6% | ✅ Beats baseline |
+| 3-month forward (non-overlapping) | Random Forest | **72.3%** | 63.2% | ✅ Beats baseline |
+| 3-month forward (non-overlapping) | CatBoost | **67.7%** | 63.2% | ✅ Beats baseline |
 
 - **Monthly returns are unpredictable** with this approach — all 7 models perform at or near chance (47-57%), below the 62.5% always-long baseline. Sharpe ratios are near zero.
 - **3-month overlapping forward returns show signal** — CatBoost (74.5%) and Ensemble (70.3%) beat the always-long baseline. However, overlapping returns inflate metrics since consecutive predictions share 2/3 of the observation window.
+- **3-month non-overlapping returns confirm signal** — Random Forest (72.3%) and CatBoost (67.7%) beat the non-overlapping baseline (63.2%) using independent quarterly observations. All metrics (R², Sharpe, DM) are valid without overlap adjustments.
 - **R² OOS is uniformly negative** across all models and horizons, indicating the historical mean benchmark has lower MSE than any model.
 
-### Portfolio Performance (3-month forward, symmetric 1.0/1.0)
+### Portfolio Performance (3-month overlapping, symmetric 1.0/1.0)
 
 | Model | Ann Return | Sharpe | Max Drawdown |
 |-------|:---------:|:------:|:-----------:|
@@ -81,9 +94,19 @@ python test_all.py
 | Linear | 4.3% | 0.74 | -5.7% |
 | **B&H S&P 500** | **9.5%** | **0.68** | — |
 
+### Portfolio Performance (3-month non-overlapping, asymmetric 2.5/0.25)
+
+| Model | Ann Return | Sharpe | Max Drawdown |
+|-------|:---------:|:------:|:-----------:|
+| CatBoost | **13.1%** | **0.79** | -19.0% |
+| MLP | 12.6% | 0.84 | -15.2% |
+| Random Forest | 11.4% | 0.69 | -19.6% |
+| XGBoost | 10.1% | 0.67 | -20.3% |
+| **B&H S&P 500** | 9.5% | 0.68 | -46.7% |
+
 ### Asymmetric Leverage
 
-Asymmetric position sizing (2.5x long / 0.25x short) can improve Sharpe 1-2x for long-biased models (elasticnet, MLP), but the strongest models (CatBoost, Ensemble) see Sharpe decrease at higher asymmetric leverage. The primary benefit is reduced max drawdown from equity-like to bond-like levels.
+Asymmetric position sizing (2.5x long / 0.25x short) can improve Sharpe 1-2x for long-biased models (elasticnet, MLP), but the strongest models (CatBoost, Ensemble) see Sharpe decrease at higher asymmetric leverage. The primary benefit is reduced max drawdown from equity-like to bond-like levels. The non-overlapping evaluation confirms these findings with fully independent observations.
 
 - See [docs/performance_log.md](docs/performance_log.md) and [docs/leverage_sweep_summary.md](docs/leverage_sweep_summary.md)
 

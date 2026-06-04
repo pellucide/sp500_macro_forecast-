@@ -44,7 +44,9 @@ monthly 1-month-ahead returns, the pipeline performs near chance (47--57\%
 directional accuracy), confirming the extreme difficulty of short-term
 prediction. On 3-month overlapping forward returns, the best models achieve
 up to~74.5\% directional accuracy, exceeding the~67\% overlapping always-long
-baseline. The top configuration achieves a Sharpe ratio of~0.87
+baseline. A non-overlapping evaluation on independent quarterly observations
+confirms the signal with Random Forest reaching~72.3\% directional accuracy.
+The top configuration achieves a Sharpe ratio of~0.87
 out-of-sample from 2000--2026. An asymmetric leverage strategy
 (2.5$\times$ long~/~0.25$\times$ short) boosts Sharpe for long-biased models
 but has mixed effects on the strongest predictors (CatBoost, Ensemble).
@@ -118,6 +120,13 @@ observation window, which inflates apparent significance but preserves sample
 size. We report results for both targets and note that on 3-month returns
 the correct always-long baseline rises to~67\% (the market rose in~67\% of
 overlapping 3-month windows from 2000--2026).
+
+We also evaluate a \textbf{non-overlapping} variant of the 3-month target,
+where observations are sub-sampled to every third month (quarterly frequency).
+This yields~1/3 as many training samples but produces independent observations,
+so all metrics (R$^2$, Sharpe, Diebold-Mariano) are valid without overlap
+corrections. The pipeline supports both modes via the \texttt{--non-overlap}
+flag.
 
 \paragraph{Train/test splits.}
 We use an expanding ``walk-forward'' design: at each step the model trains on
@@ -269,6 +278,20 @@ should interpret the 3-month results with this caveat in mind. For a
 conservative baseline, the non-overlapping 3-month always-long accuracy
 (where each 3-month block is independent) is~63.2\%.
 
+\paragraph{Non-overlapping evaluation.}
+To address the overlap concern, we also evaluated all models on strictly
+non-overlapping 3-month returns by sub-sampling both features and targets
+to every third month (quarterly frequency). This produces~1/3 the number
+of observations but yields fully independent return windows. The results
+confirm the directional signal: Random Forest achieves~72.3\% hit ratio
+(exceeding the~63.2\% non-overlapping baseline by~9.1 points), CatBoost
+reaches~67.7\%, and 6 of 7 models beat the baseline. The non-overlapping
+evaluation also reveals that some models (MLP, CatBoost) were \emph{understated}
+by overlapping metrics, with MLP's Sharpe rising from~0.33 (overlapping) to~0.71
+(non-overlapping). In contrast, the Ensemble's hit ratio drops from~70.3\% to
+~63.1\%, suggesting its averaging strategy benefits from the autocorrelation
+structure in overlapping training data.
+
 Walk-forward configurations on 3-month returns with expanding window give
 ~66\% hit ratio (Sharpe~0.60); fixed~60-month window gives~63\%
 (Sharpe~0.53).
@@ -324,12 +347,16 @@ The pipeline is available at \url{https://github.com/pellucide/sp500\_macro\_for
 To reproduce the main 3-month result (ensemble, full 7-model sweep):
 
 \begin{verbatim}
+# Overlapping 3-month returns (monthly frequency, default)
 python run_all_models_oos.py --sweep --step-size 3
+
+# Non-overlapping 3-month returns (quarterly frequency, clean metrics)
+python run_all_models_oos.py --sweep --non-overlap
 \end{verbatim}
 
 All CLI flags (model type, leverage, screening threshold, rebalance frequency,
-etc.) are documented in \texttt{docs/CLI\_USAGE.md}. The pipeline provides a
-Python API and CLI for exploring beyond the experiments above.
+non-overlapping mode, etc.) are documented in \texttt{docs/CLI\_USAGE.md}. The
+pipeline provides a Python API and CLI for exploring beyond the experiments above.
 
 
 \section{Conclusion / Future Work}

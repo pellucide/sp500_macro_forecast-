@@ -4,6 +4,11 @@ Run OOS walk-forward tests for ALL model types using 3-month forward returns.
 Target = 3-month forward S&P 500 return, predicted monthly from FRED-MD indicators.
 This gives monthly predictions that are each for the cumulative return over the
 following 3 months.
+
+Use --non-overlap to evaluate non-overlapping 3-month returns at quarterly frequency.
+This sub-samples X and y to every 3rd month, yielding independent observations at the
+cost of ~3x fewer training samples. All metrics (R², Sharpe, DM) are valid without
+overlap corrections.
 """
 import warnings
 warnings.filterwarnings('ignore', category=FutureWarning)
@@ -70,8 +75,15 @@ def load_forward_returns(horizon=3):
 
 def run_model(model_type, step_size=3, train_window=120,
               max_long=MAX_LONG, max_short=MAX_SHORT,
-              margin_rate=MARGIN_RATE, drawdown_limit=DRAWDOWN_LIMIT):
-    """Run OOS test for a single model type with 3-month forward returns."""
+              margin_rate=MARGIN_RATE, drawdown_limit=DRAWDOWN_LIMIT,
+              non_overlap=False):
+    """Run OOS test for a single model type with 3-month forward returns.
+
+    Args:
+        non_overlap: If True, sub-sample X and y to every FORWARD_HORIZON-th
+                     observation for non-overlapping quarterly evaluation.
+                     All metrics are valid without overlap corrections.
+    """
     indicators = load_fred_data()
 
     # Load monthly returns (for VIX proxy) and 3-month forward returns (target)
@@ -107,6 +119,14 @@ def run_model(model_type, step_size=3, train_window=120,
     valid = y.notna()
     X = X[valid]
     y = y[valid]
+
+    # Non-overlapping mode: sub-sample to every FORWARD_HORIZON-th observation
+    # This yields independent quarter-sized return windows at quarterly frequency.
+    if non_overlap:
+        X = X.iloc[::FORWARD_HORIZON]
+        y = y.iloc[::FORWARD_HORIZON]
+        # step_size=1 since each index is now 1 quarter
+        step_size = 1
 
     config = SSRFConfig(
         t_stat_threshold=0.75,
@@ -154,9 +174,12 @@ def run_model(model_type, step_size=3, train_window=120,
         result.benchmark_predictions.values
     )
 
-    # R² OOS CI (adjust for overlapping forecasts)
+    # R² OOS CI (adjust for overlapping forecasts when step_size < horizon)
     n_pred = len(result.predictions)
-    n_eff = n_pred * step_size / FORWARD_HORIZON if step_size < FORWARD_HORIZON else n_pred
+    if non_overlap:
+        n_eff = n_pred  # independent observations, no adjustment needed
+    else:
+        n_eff = n_pred * step_size / FORWARD_HORIZON if step_size < FORWARD_HORIZON else n_pred
     r2_lower, r2_upper = StatisticalTests.out_of_sample_r2_confidence_interval(
         metrics.r2_oos, n_eff
     )
@@ -189,13 +212,16 @@ def run_model(model_type, step_size=3, train_window=120,
     }
 
 
-def print_results(results):
+def print_results(results, non_overlap=False):
     """Print a clean comparison table."""
+    overlap_label = "NON-OVERLAPPING" if non_overlap else "OVERLAPPING"
+    freq_label = "QUARTERLY" if non_overlap else "MONTHLY"
+    horizon_label = "3-month forward return, independent quarters" if non_overlap else "(P[t+3] / P[t]) - 1, predicted monthly from FRED-MD"
     print("=" * 120)
-    print("SSRF MODEL COMPARISON — 3-MONTH FORWARD RETURNS (OVERLAPPING, MONTHLY FREQ)")
+    print(f"SSRF MODEL COMPARISON — 3-MONTH FORWARD RETURNS ({overlap_label}, {freq_label} FREQ)")
     print(f"Run: {datetime.now()}")
-    print(f"Step size: {STEP_SIZE} month(s)")
-    print(f"Target: (P[t+3] / P[t]) - 1, predicted monthly from FRED-MD")
+    print(f"Step size: {STEP_SIZE if not non_overlap else 1} month(s)")
+    print(f"Target: {horizon_label}")
     print(f"Benchmark: expanding mean of 3-month forward returns")
     print("=" * 120)
 
@@ -228,12 +254,16 @@ def print_results(results):
 
     print("-" * 65)
     print("Significance: *** p<0.01, ** p<0.05, * p<0.10")
-    print(f"Caveat: overlapping 3-month returns inflate DM significance. "
-          f"Portfolio metrics (Sharpe, CumRet) are unreliable.")
+    if non_overlap:
+        print(f"Caveat: non-overlapping evaluation uses ~3x fewer observations. "
+              f"Metrics are valid without overlap adjustments.")
+    else:
+        print(f"Caveat: overlapping 3-month returns inflate DM significance. "
+              f"Portfolio metrics (Sharpe, CumRet) are unreliable.")
     print(f"\nBenchmark cumulative 3-month return: {results[0]['benchmark_cum']:.2%}")
 
 
-def print_sweep_results(all_results, models_run, bh_ann, bh_sharpe):
+def print_sweep_results(all_results, models_run, bh_ann, bh_sharpe, non_overlap=False):
     """Print cross-tabulated sweep results with B&H comparison."""
     # Group results by leverage combo
     by_combo = {}
@@ -241,10 +271,12 @@ def print_sweep_results(all_results, models_run, bh_ann, bh_sharpe):
         key = f"{r['max_long']:.2f}/{r['max_short']:.2f}"
         by_combo.setdefault(key, {})[r['model']] = r
 
+    overlap_label = "NON-OVERLAPPING" if non_overlap else "OVERLAPPING"
+    step_label = "1m (quarterly)" if non_overlap else f"{STEP_SIZE}m"
     print("=" * 130)
     print("LEVERAGE SWEEP — CROSS-TAB RESULTS")
     print(f"Run: {datetime.now()} | Models: {', '.join(models_run)}")
-    print(f"Target: {FORWARD_HORIZON}-month forward return | Step: {STEP_SIZE}m")
+    print(f"Target: {FORWARD_HORIZON}-month forward return ({overlap_label}) | Step: {step_label}")
     print("=" * 130)
 
     # AnnRet table
@@ -340,7 +372,10 @@ if __name__ == "__main__":
     parser.add_argument('--drawdown-limit', type=float, default=DRAWDOWN_LIMIT,
                         help=f'Drawdown limit for leverage reduction 0.0-0.5 (default: {DRAWDOWN_LIMIT})')
     parser.add_argument('--step-size', type=int, default=3,
-                        help=f'Walk-forward step in months (default: 3)')
+                        help=f'Walk-forward step in months (default: 3; ignored in --non-overlap mode)')
+    parser.add_argument('--non-overlap', action='store_true',
+                        help='Evaluate non-overlapping 3-month returns at quarterly frequency '
+                             '(sub-samples X and y to every 3rd month)')
     parser.add_argument('--sweep', action='store_true',
                         help='Run leverage sweep across all combos and models')
     args = parser.parse_args()
@@ -355,13 +390,15 @@ if __name__ == "__main__":
         n_total = len(LEVERAGE_COMBOS) * len(models_to_run)
         n_done = 0
 
+        overlap_label = "NON-OVERLAPPING" if args.non_overlap else "OVERLAPPING"
+        step_label = "1m (quarterly)" if args.non_overlap else f"{args.step_size}m"
         print("=" * 100)
         print("LEVERAGE SWEEP — ALL MODELS × ALL COMBOS")
         print(f"Models: {', '.join(models_to_run)}")
         print(f"Combos: {', '.join(f'{ml:.2f}/{ms:.2f}' for ml, ms in LEVERAGE_COMBOS)}")
         print(f"Total runs: {n_total}")
-        print(f"Target: {FORWARD_HORIZON}-month forward return")
-        print(f"Step size: {args.step_size} month(s)")
+        print(f"Target: {FORWARD_HORIZON}-month forward return ({overlap_label})")
+        print(f"Step size: {step_label}")
         print("=" * 100)
 
         for max_long, max_short in LEVERAGE_COMBOS:
@@ -378,6 +415,7 @@ if __name__ == "__main__":
                         max_short=max_short,
                         margin_rate=args.margin_rate,
                         drawdown_limit=args.drawdown_limit,
+                        non_overlap=args.non_overlap,
                     )
                     result['max_long'] = max_long
                     result['max_short'] = max_short
@@ -410,12 +448,14 @@ if __name__ == "__main__":
             bh_sharpe = 0.66
 
         print()
-        print_sweep_results(all_results, models_to_run, bh_ann, bh_sharpe)
+        print_sweep_results(all_results, models_to_run, bh_ann, bh_sharpe, non_overlap=args.non_overlap)
     else:
         # Normal mode: single leverage combo
+        overlap_label = "non-overlapping, quarterly frequency" if args.non_overlap else "overlapping, monthly frequency"
+        step_display = "1 (quarterly)" if args.non_overlap else str(args.step_size)
         print(f"Models to run: {', '.join(models_to_run)}")
-        print(f"Target: {FORWARD_HORIZON}-month forward return, monthly frequency")
-        print(f"Step size: {args.step_size} month(s) (rebalance every {args.step_size} month(s))")
+        print(f"Target: {FORWARD_HORIZON}-month forward return, {overlap_label}")
+        print(f"Step size: {step_display} month(s)")
         print(f"Position sizing: max_long={args.max_long}, max_short={args.max_short}")
         print(f"Margin: {args.margin_rate:.1%}, drawdown_limit={args.drawdown_limit}")
         print()
@@ -434,6 +474,7 @@ if __name__ == "__main__":
                     max_short=args.max_short,
                     margin_rate=args.margin_rate,
                     drawdown_limit=args.drawdown_limit,
+                    non_overlap=args.non_overlap,
                 )
                 all_results.append(result)
                 print(f"  {model_type}: R² OOS={result['r2_oos']:.4f}, "
@@ -447,4 +488,4 @@ if __name__ == "__main__":
                 sys.stderr.flush()
 
         print()
-        print_results(all_results)
+        print_results(all_results, non_overlap=args.non_overlap)

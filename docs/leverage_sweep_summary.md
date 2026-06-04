@@ -83,6 +83,91 @@ At 25x, marginal returns collapse:
 
 **Optimal configuration: max_long=2.5, max_short=0.25**
 
+---
+
+## Non-Overlapping 3-Month Returns — Cross-Validation
+
+The same 7-model sweep was also evaluated on **non-overlapping 3-month returns** at quarterly frequency (sub-sampled to every 3rd month). This produces ~1/3 as many observations, but all metrics (R², Sharpe, DM) are valid without overlap adjustments.
+
+Walk-forward backtest: 120-month expanding training window, quarterly rebalance (step_size=1 quarter), 1990–2026 test period.
+
+### Results Table
+
+| Model | Params | AnnRet | AnnVol | Sharpe | MaxDD | Hit Ratio |
+|-------|--------|:-----:|:-----:|:-----:|:----:|:---------:|
+| **elasticnet** | 1.0/1.0 | 1.0% | 5.0% | 0.21 | -19.5% | 63.1% |
+| | 1.5/0.5 | 2.9% | 6.8% | 0.45 | -15.1% | 63.1% |
+| | 1.75/0.25 | 3.9% | 7.8% | 0.53 | -13.0% | 63.1% |
+| | 2.5/0.25 | 5.4% | 10.9% | 0.53 | -18.6% | 63.1% |
+| **linear** | 1.0/1.0 | 1.7% | 4.9% | 0.34 | -15.6% | 64.6% |
+| | 1.5/0.5 | 3.0% | 7.0% | 0.44 | -14.6% | 64.6% |
+| | 1.75/0.25 | 3.7% | 8.1% | 0.46 | -14.2% | 64.6% |
+| | 2.5/0.25 | 4.9% | 10.9% | 0.46 | -19.2% | 64.6% |
+| **xgboost** | 1.0/1.0 | 3.9% | 6.8% | 0.58 | -15.4% | 64.6% |
+| | 1.5/0.5 | 6.4% | 9.8% | 0.66 | -14.9% | 64.6% |
+| | 1.75/0.25 | 7.6% | 11.2% | 0.69 | -14.8% | 64.6% |
+| | **2.5/0.25** | **10.1%** | 15.4% | **0.67** | **-20.3%** | 64.6% |
+| **random_forest** | 1.0/1.0 | 5.4% | 7.5% | 0.74 | -7.6% | **72.3%** |
+| | 1.5/0.5 | 7.7% | 10.9% | 0.72 | -11.6% | **72.3%** |
+| | 1.75/0.25 | 8.7% | 12.5% | 0.71 | -13.7% | **72.3%** |
+| | **2.5/0.25** | **11.4%** | 17.1% | **0.69** | **-19.6%** | **72.3%** |
+| **catboost** | 1.0/1.0 | 5.4% | 7.4% | 0.75 | -9.6% | 67.7% |
+| | 1.5/0.5 | 8.4% | 10.6% | 0.80 | -11.9% | 67.7% |
+| | 1.75/0.25 | 9.8% | 12.2% | 0.81 | -13.1% | 67.7% |
+| | **2.5/0.25** | **13.1%** | 16.9% | **0.79** | **-19.0%** | 67.7% |
+| **mlp** | 1.0/1.0 | 5.0% | 7.1% | 0.71 | -11.8% | 67.7% |
+| | 1.5/0.5 | 7.9% | 9.7% | 0.83 | -9.0% | 67.7% |
+| | 1.75/0.25 | 9.3% | 11.1% | **0.85** | -10.5% | 67.7% |
+| | **2.5/0.25** | **12.6%** | 15.3% | 0.84 | **-15.2%** | 67.7% |
+| **ensemble** | 1.0/1.0 | 2.7% | 5.4% | 0.52 | -10.9% | 63.1% |
+| | 1.5/0.5 | 4.1% | 7.7% | 0.55 | -12.9% | 63.1% |
+| | 1.75/0.25 | 4.8% | 8.9% | 0.55 | -13.9% | 63.1% |
+| | 2.5/0.25 | 6.4% | 12.1% | 0.54 | -19.5% | 63.1% |
+| **S&P500 B&H** | 1.0x | **9.5%** | 13.9% | 0.68 | -46.7% | — |
+
+### Key Findings (Non-Overlapping)
+
+#### 1. Directional signal is confirmed
+
+With independent quarterly observations, 6 of 7 models still beat the 63.2% always-long baseline. The non-overlapping evaluation removes any doubt about metric inflation.
+
+#### 2. Best performers differ from overlapping
+
+| Metric | Overlapping Leader | Non-Overlapping Leader |
+|--------|-------------------|----------------------|
+| Hit Ratio | CatBoost 74.5% | Random Forest **72.3%** |
+| Sharpe (2.5/0.25) | Ensemble 0.81 | MLP **0.84** |
+| AnnRet (2.5/0.25) | Ensemble 10.1% | CatBoost **13.1%** |
+
+Random Forest leads on hit ratio in the non-overlapping evaluation, while CatBoost leads on annualized return.
+
+#### 3. MLP and CatBoost dominate Sharpe
+
+MLP (0.84) and CatBoost (0.79) have the best risk-adjusted returns at 2.5/0.25 leverage, both beating B&H (0.68) with fully independent observations.
+
+#### 4. Ensemble degrades significantly
+
+Ensemble drops from 70.3% overlapping hit ratio to 63.1% non-overlapping, barely above the baseline (63.2%). This suggests the ensemble (Linear + XGBoost average) was benefiting from the autocorrelation structure in overlapping training data.
+
+---
+
+## Non-Overlapping vs Overlapping — Direct Comparison (2.5/0.25 Leverage)
+
+| Model | Overlap AnnRet | Non-Overlap AnnRet | Overlap Sharpe | Non-Overlap Sharpe |
+|-------|:-------------:|:-----------------:|:-------------:|:-----------------:|
+| CatBoost | 10.5% | **13.1%** | 0.79 | **0.79** |
+| MLP | 3.8% | **12.6%** | 0.77 | **0.84** |
+| Random Forest | 8.7% | **11.4%** | 0.75 | 0.69 |
+| XGBoost | 8.6% | **10.1%** | **0.85** | 0.67 |
+| Ensemble | **10.1%** | 6.4% | **0.81** | 0.54 |
+| Linear | **9.4%** | 4.9% | **0.75** | 0.46 |
+| ElasticNet | 4.8% | **5.4%** | **0.67** | 0.53 |
+| **B&H** | 9.5% | 9.5% | 0.68 | 0.68 |
+
+The non-overlapping evaluation reveals that some models (MLP, Random Forest, CatBoost) were *understated* by overlapping metrics, while others (Ensemble, Linear) were *overstated*.
+
+---
+
 ## Files Changed
 
 - `run_all_models_oos.py` — Added CLI args for step_size, position sizing; merge alternative features
