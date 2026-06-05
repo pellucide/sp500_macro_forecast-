@@ -15,6 +15,9 @@ catboost>=1.0.0
 # Regime detection (has graceful fallback)
 hmmlearn>=0.2.0
 
+# Progress bars
+tqdm>=4.60.0
+
 # Plotting
 matplotlib>=3.4.0
 

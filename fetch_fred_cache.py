@@ -27,61 +27,187 @@ CACHE_DIR = './data/fred_cache'
 CACHE_FILE = './data/fred_cache/all_fred_data.csv'
 API_KEY = "48f0923658be7d90ba311c4a55138377"
 
-# Complete indicator list
-INDICATORS = {
-    # Output & Income
-    'GDPC1': 'Real GDP',
-    'PCECC96': 'Real Consumption',
-    'FYFSD': 'Federal Surplus/Deficit',
+# ============================================================================
+# Full FRED-MD indicator list (McCracken & Ng, 134-series database)
+# Sourced from: https://fred.stlouisfed.org/docs/fred-md/fred-md-current.csv
+# For series ending in 'x', the 'x' suffix denotes a FRED-MD transformation;
+# the underlying FRED series is fetched without the suffix.
+#
+# Categories match the FRED-MD taxonomy:
+#   1) Output & Income
+#   2) Labor Market
+#   3) Housing
+#   4) Consumption, Orders & Inventories
+#   5) Money & Credit
+#   6) Interest & Exchange Rates
+#   7) Prices
+#   8) Stock Market & Sentiment
+# ============================================================================
 
-    # Labor Market
-    'UNRATE': 'Unemployment Rate',
-    'PAYEMS': 'Payrolls',
-    'EMRATIO': 'Employment Ratio',
-    'HOUST': 'Housing Starts',
-    'PERMIT': 'Building Permits',
+# Map: FRED-MD column name -> FRED API series ID
+# Most map 1:1; some need the 'x' suffix stripped or a different ticker.
+FRED_MD_SERIES = {
+    # ---- OUTPUT & INCOME (18 series) ----
+    'RPI': 'RPI',                                      # Real Personal Income
+    'W875RX1': 'W875RX1',                              # Real Personal Income ex Transfer Receipts
+    'DPCERA3M086SBEA': 'DPCERA3M086SBEA',              # Real Personal Consumption Expenditures
+    'CMRMTSPLx': 'CMRMTSPL',                           # Real Mfg & Trade Industries Sales
+    'RETAILx': 'RETAIL',                                # Retail & Food Services Sales
+    'INDPRO': 'INDPRO',                                 # Industrial Production Index
+    'IPFPNSS': 'IPFPNSS',                               # IP: Final Products & Nonindustrial Supplies
+    'IPFINAL': 'IPFINAL',                               # IP: Final Products (Market Group)
+    'IPCONGD': 'IPCONGD',                               # IP: Consumer Goods
+    'IPDCONGD': 'IPDCONGD',                             # IP: Durable Consumer Goods
+    'IPNCONGD': 'IPNCONGD',                             # IP: Nondurable Consumer Goods
+    'IPBUSEQ': 'IPBUSEQ',                               # IP: Business Equipment
+    'IPMAT': 'IPMAT',                                   # IP: Materials
+    'IPDMAT': 'IPDMAT',                                 # IP: Durable Materials
+    'IPNMAT': 'IPNMAT',                                 # IP: Nondurable Materials
+    'IPMANSICS': 'IPMANSICS',                           # IP: Manufacturing (SIC)
+    'IPB51222S': 'IPB51222S',                           # IP: Residential Utilities
+    'IPFUELS': 'IPFUELS',                               # IP: Fuels
 
-    # Inflation
-    'CPIAUCSL': 'CPI',
-    'CPILFESL': 'Core CPI',
-    'PCECTPI': 'PCE Price Index',
-    'PCEPILFE': 'Core PCE',
-    'GDPDEF': 'GDP Deflator',
-    'PPIFGS': 'PPI',
+    # ---- LABOR MARKET (24 series) ----
+    'CUMFNS': 'CUMFNS',                                 # Capacity Utilization: Manufacturing
+    'HWI': 'HWI',                                       # Help-Wanted Index (discontinued)
+    'HWIURATIO': 'HWIURATIO',                           # Help-Wanted/Unemployment Ratio
+    'CLF16OV': 'CLF16OV',                               # Civilian Labor Force
+    'CE16OV': 'CE16OV',                                 # Civilian Employment
+    'UNRATE': 'UNRATE',                                 # Unemployment Rate
+    'UEMPMEAN': 'UEMPMEAN',                             # Avg. Weeks Unemployed
+    'UEMPLT5': 'UEMPLT5',                               # <5 Weeks Unemployed
+    'UEMP5TO14': 'UEMP5TO14',                           # 5-14 Weeks Unemployed
+    'UEMP15OV': 'UEMP15OV',                             # 15+ Weeks Unemployed
+    'UEMP15T26': 'UEMP15T26',                           # 15-26 Weeks Unemployed
+    'UEMP27OV': 'UEMP27OV',                             # 27+ Weeks Unemployed
+    'CLAIMSx': 'CLAIMS',                                 # Initial Jobless Claims
+    'PAYEMS': 'PAYEMS',                                 # All Employees: Total Nonfarm
+    'USGOOD': 'USGOOD',                                 # Goods-Producing Employment
+    'CES1021000001': 'CES1021000001',                   # Mining & Logging Employment
+    'USCONS': 'USCONS',                                 # Construction Employment
+    'MANEMP': 'MANEMP',                                 # Manufacturing Employment
+    'DMANEMP': 'DMANEMP',                               # Durable Goods Employment
+    'NDMANEMP': 'NDMANEMP',                             # Nondurable Goods Employment
+    'SRVPRD': 'SRVPRD',                                 # Service-Providing Employment
+    'USTPU': 'USTPU',                                   # Trade, Transportation & Utilities Employment
+    'USWTRADE': 'USWTRADE',                             # Wholesale Trade Employment
+    'USTRADE': 'USTRADE',                               # Retail Trade Employment
+    'USFIRE': 'USFIRE',                                 # Financial Activities Employment
+    'USGOVT': 'USGOVT',                                 # Government Employment
+    'CES0600000007': 'CES0600000007',                   # Goods-Producing Employment
+    'AWOTMAN': 'AWOTMAN',                               # Avg Weekly Overtime Hours: Mfg
+    'AWHMAN': 'AWHMAN',                                 # Avg Weekly Hours: Manufacturing
 
-    # Interest Rates
-    'TB3MS': '3M Treasury',
-    'TB6MS': '6M Treasury',
-    'GS1': '1Y Treasury',
-    'GS2': '2Y Treasury',
-    'GS5': '5Y Treasury',
-    'GS10': '10Y Treasury',
-    'GS20': '20Y Treasury',
-    'GS30': '30Y Treasury',
-    'AAA': 'AAA Corporate',
-    'BAA': 'BAA Corporate',
+    # ---- HOUSING (10 series) ----
+    'HOUST': 'HOUST',                                   # Housing Starts: Total
+    'HOUSTNE': 'HOUSTNE',                               # Housing Starts: Northeast
+    'HOUSTMW': 'HOUSTMW',                               # Housing Starts: Midwest
+    'HOUSTS': 'HOUSTS',                                 # Housing Starts: South
+    'HOUSTW': 'HOUSTW',                                 # Housing Starts: West
+    'PERMIT': 'PERMIT',                                 # Building Permits: Total
+    'PERMITNE': 'PERMITNE',                             # Building Permits: Northeast
+    'PERMITMW': 'PERMITMW',                             # Building Permits: Midwest
+    'PERMITS': 'PERMITS',                               # Building Permits: South
+    'PERMITW': 'PERMITW',                               # Building Permits: West
 
-    # Yield Curve
-    'T10Y2YM': '10Y-2Y Spread',
-    'TEDRATE': 'TED Spread',
+    # ---- CONSUMPTION, ORDERS & INVENTORIES (6 series) ----
+    'ACOGNO': 'ACOGNO',                                 # New Orders for Consumer Goods
+    'AMDMNOx': 'AMDMNO',                                # New Orders for Durable Goods
+    'ANDENOx': 'ANDENO',                                # New Orders for Nondefense Capital Goods
+    'AMDMUOx': 'AMDMUO',                                # Unfilled Orders for Durable Goods
+    'BUSINVx': 'BUSINV',                                # Total Business Inventories
+    'ISRATIOx': 'ISRATIO',                              # Inventory/Sales Ratio
 
-    # Risk & Volatility
-    'VIXCLS': 'VIX',
-    'MOVE': 'MOVE Index',
+    # ---- MONEY & CREDIT (12 series) ----
+    'M1SL': 'M1SL',                                     # M1 Money Supply
+    'M2SL': 'M2SL',                                     # M2 Money Supply
+    'M2REAL': 'M2REAL',                                 # Real M2 Money Supply
+    'BOGMBASE': 'BOGMBASE',                             # Monetary Base
+    'TOTRESNS': 'TOTRESNS',                             # Total Reserves of Depository Institutions
+    'NONBORRES': 'NONBORRES',                           # Nonborrowed Reserves
+    'BUSLOANS': 'BUSLOANS',                             # Commercial & Industrial Loans
+    'REALLN': 'REALLN',                                 # Real Estate Loans at Banks
+    'NONREVSL': 'NONREVSL',                             # Consumer Credit Outstanding
+    'CONSPI': 'CONSPI',                                 # Consumer Price Index (concluded series)
+    'DTCOLNVHFNM': 'DTCOLNVHFNM',                       # Consumer Motor Vehicle Loans Outstanding
+    'DTCTHFNM': 'DTCTHFNM',                             # Total Consumer Loans and Leases Outstanding
 
-    # Sentiment
-    'UMCSENT': 'Consumer Sentiment',
-    'IC4WSA': 'Capacity Utilization',
+    # ---- INTEREST & EXCHANGE RATES (22 series) ----
+    'FEDFUNDS': 'FEDFUNDS',                             # Effective Federal Funds Rate
+    'CP3Mx': 'CP3M',                                    # 3-Month AA Commercial Paper Rate
+    'TB3MS': 'TB3MS',                                   # 3-Month Treasury Bill
+    'TB6MS': 'TB6MS',                                   # 6-Month Treasury Bill
+    'GS1': 'GS1',                                       # 1-Year Treasury Rate
+    'GS5': 'GS5',                                       # 5-Year Treasury Rate
+    'GS10': 'GS10',                                     # 10-Year Treasury Rate
+    'AAA': 'AAA',                                       # AAA Corporate Bond Yield
+    'BAA': 'BAA',                                       # BAA Corporate Bond Yield
+    'COMPAPFFx': 'COMPAPFF',                            # CP - Fed Funds Spread
+    'TB3SMFFM': 'TB3SMFFM',                             # 3M T-Bill - Fed Funds
+    'TB6SMFFM': 'TB6SMFFM',                             # 6M T-Bill - Fed Funds
+    'T1YFFM': 'T1YFFM',                                 # 1Y T-Bill - Fed Funds
+    'T5YFFM': 'T5YFFM',                                 # 5Y T-Bill - Fed Funds
+    'T10YFFM': 'T10YFFM',                               # 10Y T-Bill - Fed Funds
+    'AAAFFM': 'AAAFFM',                                 # AAA - Fed Funds
+    'BAAFFM': 'BAAFFM',                                 # BAA - Fed Funds
+    'TWEXAFEGSMTHx': 'TWEXAFEGSMTH',                    # Trade Weighted U.S. Dollar Index
+    'EXSZUSx': 'EXSZUS',                                # Switzerland / U.S. FX Rate
+    'EXJPUSx': 'EXJPUS',                                # Japan / U.S. FX Rate
+    'EXUSUKx': 'EXUSUK',                                # U.K. / U.S. FX Rate
+    'EXCAUSx': 'EXCAUS',                                # Canada / U.S. FX Rate
 
-    # Money Supply - M1, M2, M3
-    'M1SL': 'M1 Money Supply',
-    'M2SL': 'M2 Money Supply',
-    'M3SL': 'M3 Money Supply',
+    # ---- PRICES (20 series) ----
+    'WPSFD49207': 'WPSFD49207',                         # PPI: Finished Goods
+    'WPSFD49502': 'WPSFD49502',                         # PPI: Finished Consumer Goods
+    'WPSID61': 'WPSID61',                               # PPI: Intermediate Materials
+    'WPSID62': 'WPSID62',                               # PPI: Crude Materials
+    'OILPRICEx': 'OILPRICE',                            # Crude Oil Price
+    'PPICMM': 'PPICMM',                                 # PPI: Metals & Metal Products
+    'CPIAUCSL': 'CPIAUCSL',                             # CPI: All Items
+    'CPIAPPSL': 'CPIAPPSL',                             # CPI: Apparel
+    'CPITRNSL': 'CPITRNSL',                             # CPI: Transportation
+    'CPIMEDSL': 'CPIMEDSL',                             # CPI: Medical Care
+    'CUSR0000SAC': 'CUSR0000SAC',                       # CPI: Commodities
+    'CUSR0000SAD': 'CUSR0000SAD',                       # CPI: Durables
+    'CUSR0000SAS': 'CUSR0000SAS',                       # CPI: Services
+    'CPIULFSL': 'CPIULFSL',                             # CPI: All Items Less Food
+    'CUSR0000SA0L2': 'CUSR0000SA0L2',                   # CPI: All Items Less Shelter
+    'CUSR0000SA0L5': 'CUSR0000SA0L5',                   # CPI: All Items Less Medical Care
+    'PCEPI': 'PCEPI',                                   # Personal Consumption Expenditures: Chain-type Price Index
+    'DDURRG3M086SBEA': 'DDURRG3M086SBEA',               # PCE: Durable Goods
+    'DNDGRG3M086SBEA': 'DNDGRG3M086SBEA',               # PCE: Nondurable Goods
+    'DSERRG3M086SBEA': 'DSERRG3M086SBEA',               # PCE: Services
 
-    # Credit
-    'BAAFFM': 'BAA-10Y Spread',
-    'AAAFFM': 'AAA-10Y Spread',
+    # ---- STOCK MARKET (3 series) ----
+    'S&P 500': 'SP500',                                 # S&P 500 Index
+    'S&P div yield': None,                               # Not a direct FRED API series
+    'S&P PE ratio': None,                                # Not a direct FRED API series
+
+    # ---- SENTIMENT (3 series) ----
+    'UMCSENTx': 'UMCSENT',                              # Consumer Sentiment Index
+    'VIXCLSx': 'VIXCLS',                                # CBOE Volatility Index (VIX)
+    'INVEST': 'INVEST',                                 # Investment in Securities (from FRB)
+
+    # ---- ADDITIONAL LABOR (4 series) ----
+    'CES0600000008': 'CES0600000008',                   # Avg Hourly Earnings: Goods-Producing
+    'CES2000000008': 'CES2000000008',                   # Avg Hourly Earnings: Construction
+    'CES3000000008': 'CES3000000008',                   # Avg Hourly Earnings: Manufacturing
+
+    # ---- EXTRA: useful series not in official FRED-MD ----
+    'GS2': 'GS2',                                       # 2-Year Treasury Rate
+    'GS20': 'GS20',                                     # 20-Year Treasury Rate
+    'GS30': 'GS30',                                     # 30-Year Treasury Rate
+    'T10Y2YM': 'T10Y2YM',                               # 10Y-2Y Treasury Spread
+    'TEDRATE': 'TEDRATE',                               # TED Spread
+    'M3SL': 'M3SL',                                     # M3 Money Supply
+    'MOVE': 'MOVE',                                     # MOVE Bond Volatility Index
+    'IC4WSA': 'IC4WSA',                                 # Capacity Utilization: Total Index
+    'EMRATIO': 'EMRATIO',                               # Employment-Population Ratio
 }
+
+# Build indicator dict: FRED API series ID -> FRED-MD column name
+# This drives the fetch loop with ~120+ series from the full FRED-MD database.
+INDICATORS = {v: k for k, v in FRED_MD_SERIES.items() if v is not None}
 
 # ============================================================================
 # CACHE FUNCTIONS

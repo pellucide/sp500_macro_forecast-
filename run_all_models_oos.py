@@ -16,10 +16,13 @@ warnings.filterwarnings('ignore', category=UserWarning)
 
 import sys
 import time
+import os
 import numpy as np
 import pandas as pd
 from datetime import datetime
 import yfinance as yf
+import concurrent.futures
+from concurrent.futures import ProcessPoolExecutor, as_completed, ThreadPoolExecutor
 
 # Setup logging to file only to keep stdout clean
 import logging
@@ -53,6 +56,7 @@ LEVERAGE_COMBOS = [
     (1.5, 0.5),
     (1.75, 0.25),
     (2.5, 0.25),
+    (3.0, 0.25),
 ]
 
 
@@ -210,6 +214,23 @@ def run_model(model_type, step_size=3, train_window=120,
         'mae': metrics.mae,
         'benchmark_cum': bh_return,
     }
+
+
+def _run_single_model(params):
+    """Run a single model with given params. Top-level function for multiprocessing."""
+    result = run_model(
+        params['model_type'],
+        step_size=params['step_size'],
+        max_long=params['max_long'],
+        max_short=params['max_short'],
+        margin_rate=params['margin_rate'],
+        drawdown_limit=params['drawdown_limit'],
+        non_overlap=params['non_overlap'],
+    )
+    if 'task_max_long' in params:
+        result['max_long'] = params['task_max_long']
+        result['max_short'] = params['task_max_short']
+    return result
 
 
 def print_results(results, non_overlap=False):
@@ -378,114 +399,182 @@ if __name__ == "__main__":
                              '(sub-samples X and y to every 3rd month)')
     parser.add_argument('--sweep', action='store_true',
                         help='Run leverage sweep across all combos and models')
+    parser.add_argument('--workers', type=int, default=os.cpu_count(),
+                        help=f'Number of parallel workers (default: {os.cpu_count()}, 1 = sequential)')
     args = parser.parse_args()
 
     STEP_SIZE = args.step_size  # noqa: F811 — re-bind module-level constant
 
     models_to_run = [m for m in MODEL_TYPES if m in args.models] if args.models else MODEL_TYPES
 
-    if args.sweep:
-        # Sweep mode: run all leverage combos across all models
-        all_results = []
-        n_total = len(LEVERAGE_COMBOS) * len(models_to_run)
-        n_done = 0
-
-        overlap_label = "NON-OVERLAPPING" if args.non_overlap else "OVERLAPPING"
-        step_label = "1m (quarterly)" if args.non_overlap else f"{args.step_size}m"
-        print("=" * 100)
-        print("LEVERAGE SWEEP — ALL MODELS × ALL COMBOS")
-        print(f"Models: {', '.join(models_to_run)}")
-        print(f"Combos: {', '.join(f'{ml:.2f}/{ms:.2f}' for ml, ms in LEVERAGE_COMBOS)}")
-        print(f"Total runs: {n_total}")
-        print(f"Target: {FORWARD_HORIZON}-month forward return ({overlap_label})")
-        print(f"Step size: {step_label}")
-        print("=" * 100)
-
-        for max_long, max_short in LEVERAGE_COMBOS:
+    workers = args.workers
+    if workers <= 1:
+        # Sequential mode (no parallelism overhead)
+        if args.sweep:
+            all_results = []
+            n_total = len(LEVERAGE_COMBOS) * len(models_to_run)
+            overlap_label = "NON-OVERLAPPING" if args.non_overlap else "OVERLAPPING"
+            step_label = "1m (quarterly)" if args.non_overlap else f"{args.step_size}m"
+            print("=" * 100)
+            print("LEVERAGE SWEEP — ALL MODELS × ALL COMBOS")
+            print(f"Models: {', '.join(models_to_run)}")
+            print(f"Combos: {', '.join(f'{ml:.2f}/{ms:.2f}' for ml, ms in LEVERAGE_COMBOS)}")
+            print(f"Total runs: {n_total}")
+            print(f"Target: {FORWARD_HORIZON}-month forward return ({overlap_label})")
+            print(f"Step size: {step_label}")
+            print("=" * 100)
+            for max_long, max_short in LEVERAGE_COMBOS:
+                for model_type in models_to_run:
+                    label = f"{model_type} @ {max_long:.2f}/{max_short:.2f}"
+                    print(f"\n[{len(all_results)+1}/{n_total}] {label}...", end=" ")
+                    sys.stdout.flush()
+                    try:
+                        result = run_model(
+                            model_type, step_size=args.step_size,
+                            max_long=max_long, max_short=max_short,
+                            margin_rate=args.margin_rate,
+                            drawdown_limit=args.drawdown_limit,
+                            non_overlap=args.non_overlap,
+                        )
+                        result['max_long'] = max_long
+                        result['max_short'] = max_short
+                        all_results.append(result)
+                        print(f"R²={result['r2_oos']:.4f} Hit={result['hit_ratio']:.1%} "
+                              f"Sharpe={result['sharpe']:.4f} ({result['time_s']:.1f}s)")
+                    except Exception as e:
+                        print(f"FAILED - {e}")
+                        import traceback; traceback.print_exc()
+                    sys.stdout.flush()
+        else:
+            all_results = []
+            overlap_label = "non-overlapping, quarterly frequency" if args.non_overlap else "overlapping, monthly frequency"
+            step_display = "1 (quarterly)" if args.non_overlap else str(args.step_size)
+            print(f"Models to run: {', '.join(models_to_run)}")
+            print(f"Target: {FORWARD_HORIZON}-month forward return, {overlap_label}")
+            print(f"Step size: {step_display} month(s)")
+            print(f"Position sizing: max_long={args.max_long}, max_short={args.max_short}")
+            print(f"Margin: {args.margin_rate:.1%}, drawdown_limit={args.drawdown_limit}")
+            print()
             for model_type in models_to_run:
-                n_done += 1
-                label = f"{max_long:.2f}/{max_short:.2f}"
-                print(f"\n[{n_done}/{n_total}] {model_type} @ {label}...", end=" ")
+                print(f"\n{'='*70}\nRunning: {model_type}\n{'='*70}")
                 sys.stdout.flush()
                 try:
                     result = run_model(
-                        model_type,
-                        step_size=args.step_size,
-                        max_long=max_long,
-                        max_short=max_short,
+                        model_type, step_size=args.step_size,
+                        max_long=args.max_long, max_short=args.max_short,
                         margin_rate=args.margin_rate,
                         drawdown_limit=args.drawdown_limit,
                         non_overlap=args.non_overlap,
                     )
-                    result['max_long'] = max_long
-                    result['max_short'] = max_short
                     all_results.append(result)
-                    print(f"R²={result['r2_oos']:.4f} Hit={result['hit_ratio']:.1%} "
-                          f"Sharpe={result['sharpe']:.4f} ({result['time_s']:.1f}s)")
+                    print(f"  {model_type}: R² OOS={result['r2_oos']:.4f}, "
+                          f"Hit={result['hit_ratio']:.1%}, Sharpe={result['sharpe']:.4f}, "
+                          f"Time={result['time_s']:.1f}s")
+                    sys.stdout.flush()
                 except Exception as e:
-                    print(f"FAILED - {e}")
-                    import traceback
-                    traceback.print_exc()
-                sys.stdout.flush()
+                    print(f"  {model_type}: FAILED - {e}", file=sys.stderr)
+                    import traceback; traceback.print_exc()
+                    sys.stderr.flush()
+    else:
+        # Parallel mode
+        print(f"Using {workers} parallel workers")
+        if args.sweep:
+            # Sweep mode: build all param combos
+            tasks = []
+            for max_long, max_short in LEVERAGE_COMBOS:
+                for model_type in models_to_run:
+                    tasks.append({
+                        'model_type': model_type,
+                        'step_size': args.step_size,
+                        'max_long': max_long,
+                        'max_short': max_short,
+                        'margin_rate': args.margin_rate,
+                        'drawdown_limit': args.drawdown_limit,
+                        'non_overlap': args.non_overlap,
+                        'task_max_long': max_long,
+                        'task_max_short': max_short,
+                    })
+            n_total = len(tasks)
+            overlap_label = "NON-OVERLAPPING" if args.non_overlap else "OVERLAPPING"
+            step_label = "1m (quarterly)" if args.non_overlap else f"{args.step_size}m"
+            print("=" * 100)
+            print("LEVERAGE SWEEP — ALL MODELS × ALL COMBOS (PARALLEL)")
+            print(f"Models: {', '.join(models_to_run)}")
+            print(f"Combos: {', '.join(f'{ml:.2f}/{ms:.2f}' for ml, ms in LEVERAGE_COMBOS)}")
+            print(f"Total runs: {n_total}")
+            print(f"Target: {FORWARD_HORIZON}-month forward return ({overlap_label})")
+            print(f"Step size: {step_label}")
+            print(f"Workers: {workers}")
+            print("=" * 100)
 
-        # Compute B&H from non-overlapping forward returns
-        # (target from load_forward_returns is overlapping monthly frequency;
-        #  take every FORWARD_HORIZON-th observation for non-overlapping quarters)
+            all_results = []
+            with ProcessPoolExecutor(max_workers=workers) as executor:
+                future_map = {executor.submit(_run_single_model, task): task for task in tasks}
+                for future in as_completed(future_map):
+                    task = future_map[future]
+                    label = f"{task['model_type']} @ {task['task_max_long']:.2f}/{task['task_max_short']:.2f}"
+                    try:
+                        result = future.result()
+                        all_results.append(result)
+                        print(f"  [{len(all_results)}/{n_total}] {label}: "
+                              f"R²={result['r2_oos']:.4f} Hit={result['hit_ratio']:.1%} "
+                              f"Sharpe={result['sharpe']:.4f} ({result['time_s']:.1f}s)")
+                    except Exception as e:
+                        print(f"  [{len(all_results)+1}/{n_total}] {label}: FAILED - {e}")
+                    sys.stdout.flush()
+        else:
+            # Normal mode: run all models in parallel
+            all_results = []
+            overlap_label = "non-overlapping, quarterly frequency" if args.non_overlap else "overlapping, monthly frequency"
+            step_display = "1 (quarterly)" if args.non_overlap else str(args.step_size)
+            print(f"Models to run: {', '.join(models_to_run)}")
+            print(f"Target: {FORWARD_HORIZON}-month forward return, {overlap_label}")
+            print(f"Step size: {step_display} month(s)")
+            print(f"Position sizing: max_long={args.max_long}, max_short={args.max_short}")
+            print(f"Margin: {args.margin_rate:.1%}, drawdown_limit={args.drawdown_limit}")
+            print(f"Workers: {workers}")
+            print()
+
+            tasks = [{
+                'model_type': mt, 'step_size': args.step_size,
+                'max_long': args.max_long, 'max_short': args.max_short,
+                'margin_rate': args.margin_rate,
+                'drawdown_limit': args.drawdown_limit,
+                'non_overlap': args.non_overlap,
+            } for mt in models_to_run]
+
+            with ProcessPoolExecutor(max_workers=workers) as executor:
+                future_map = {executor.submit(_run_single_model, task): task for task in tasks}
+                for future in as_completed(future_map):
+                    task = future_map[future]
+                    try:
+                        result = future.result()
+                        all_results.append(result)
+                        print(f"  {task['model_type']}: R² OOS={result['r2_oos']:.4f}, "
+                              f"Hit={result['hit_ratio']:.1%}, Sharpe={result['sharpe']:.4f}, "
+                              f"Time={result['time_s']:.1f}s")
+                    except Exception as e:
+                        print(f"  {task['model_type']}: FAILED - {e}")
+                    sys.stdout.flush()
+
+    # Compute B&H benchmark (shared by both modes)
+    if args.sweep:
         _, target = load_forward_returns(FORWARD_HORIZON)
         if target is not None and len(target) > 0:
-            non_overlap = target.iloc[::FORWARD_HORIZON]
-            if len(non_overlap) > 1:
-                bh_cum = (1 + non_overlap.values).prod() - 1
-                n_years = len(non_overlap) * FORWARD_HORIZON / 12
+            bh_series = target.iloc[::FORWARD_HORIZON]
+            if len(bh_series) > 1:
+                bh_cum = (1 + bh_series.values).prod() - 1
+                n_years = len(bh_series) * FORWARD_HORIZON / 12
                 bh_ann = (1 + bh_cum) ** (1 / n_years) - 1
-                bh_vol = non_overlap.std() * np.sqrt(12 / FORWARD_HORIZON)
+                bh_vol = bh_series.std() * np.sqrt(12 / FORWARD_HORIZON)
                 bh_sharpe = bh_ann / bh_vol if bh_vol > 0 else 0
             else:
-                bh_ann = 0.09
-                bh_sharpe = 0.66
+                bh_ann, bh_sharpe = 0.09, 0.66
         else:
-            bh_ann = 0.09
-            bh_sharpe = 0.66
+            bh_ann, bh_sharpe = 0.09, 0.66
 
         print()
         print_sweep_results(all_results, models_to_run, bh_ann, bh_sharpe, non_overlap=args.non_overlap)
     else:
-        # Normal mode: single leverage combo
-        overlap_label = "non-overlapping, quarterly frequency" if args.non_overlap else "overlapping, monthly frequency"
-        step_display = "1 (quarterly)" if args.non_overlap else str(args.step_size)
-        print(f"Models to run: {', '.join(models_to_run)}")
-        print(f"Target: {FORWARD_HORIZON}-month forward return, {overlap_label}")
-        print(f"Step size: {step_display} month(s)")
-        print(f"Position sizing: max_long={args.max_long}, max_short={args.max_short}")
-        print(f"Margin: {args.margin_rate:.1%}, drawdown_limit={args.drawdown_limit}")
-        print()
-
-        all_results = []
-        for model_type in models_to_run:
-            print(f"\n{'='*70}")
-            print(f"Running: {model_type}")
-            print(f"{'='*70}")
-            sys.stdout.flush()
-            try:
-                result = run_model(
-                    model_type,
-                    step_size=args.step_size,
-                    max_long=args.max_long,
-                    max_short=args.max_short,
-                    margin_rate=args.margin_rate,
-                    drawdown_limit=args.drawdown_limit,
-                    non_overlap=args.non_overlap,
-                )
-                all_results.append(result)
-                print(f"  {model_type}: R² OOS={result['r2_oos']:.4f}, "
-                      f"Hit={result['hit_ratio']:.1%}, Sharpe={result['sharpe']:.4f}, "
-                      f"Time={result['time_s']:.1f}s")
-                sys.stdout.flush()
-            except Exception as e:
-                print(f"  {model_type}: FAILED - {e}", file=sys.stderr)
-                import traceback
-                traceback.print_exc()
-                sys.stderr.flush()
-
         print()
         print_results(all_results, non_overlap=args.non_overlap)

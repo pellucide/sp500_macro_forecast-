@@ -15,6 +15,7 @@ import pandas as pd
 from sklearn.linear_model import ElasticNet, Ridge
 from sklearn.preprocessing import StandardScaler
 from scipy import stats
+from tqdm import tqdm
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -72,7 +73,7 @@ print(f"Mean monthly return: {np.mean(y_arr):.3f}%")
 train_window = 60
 preds_1, actuals_1 = [], []
 
-for i in range(train_window, len(X_arr)):
+for i in tqdm(range(train_window, len(X_arr)), desc="Test 1a: Forward Walk"):
     X_train = X_arr[:i]
     y_train = y_arr[:i]
     X_test = X_arr[i:i+1]
@@ -114,7 +115,7 @@ print_header("TEST 1b: TRUE OOS (2000-2026)")
 split_idx = 240  # ~2000-01
 
 oos_preds_1, oos_actual_1 = [], []
-for i in range(split_idx, len(X_arr)):
+for i in tqdm(range(split_idx, len(X_arr)), desc="Test 1b: True OOS"):
     X_train = X_arr[:i]
     y_train = y_arr[:i]
     X_test = X_arr[i:i+1]
@@ -160,7 +161,7 @@ print_header("TEST 2: THREE OOS CONFIGURATIONS")
 
 # --- 2a: Expanding window (X[:i] -> y[i]) ---
 preds_2a, actual_2a = [], []
-for i in range(train_window, len(X_arr)):
+for i in tqdm(range(train_window, len(X_arr)), desc="Test 2a: Expanding"):
     X_train = X_arr[:i]
     y_train = y_arr[:i]
     X_test = X_arr[i:i+1]
@@ -181,7 +182,7 @@ m2a = calc_metrics(np.array(preds_2a), np.array(actual_2a))
 
 # --- 2b: Fixed window (60m rolling, X[t-60:t] -> y[t]) ---
 preds_2b, actual_2b = [], []
-for i in range(train_window, len(X_arr)):
+for i in tqdm(range(train_window, len(X_arr)), desc="Test 2b: Fixed 60m"):
     train_start = i - train_window
     X_train = X_arr[train_start:i]
     y_train = y_arr[train_start:i]
@@ -203,7 +204,7 @@ m2b = calc_metrics(np.array(preds_2b), np.array(actual_2b))
 
 # --- 2c: True OOS (Train 1980-2000, Test 2000-2026, forward alignment) ---
 preds_2c, actual_2c = [], []
-for i in range(split_idx, len(X_arr)):
+for i in tqdm(range(split_idx, len(X_arr)), desc="Test 2c: True OOS"):
     X_train = X_arr[:i]
     y_train = y_arr[:i]
     X_test = X_arr[i:i+1]
@@ -258,7 +259,7 @@ preds_3a = []
 naive_3a_p, random_3a_p, hist_3a_p, momentum_3a_p = [], [], [], []
 actual_3a = []
 
-for i in range(train_window, len(X_arr)):
+for i in tqdm(range(train_window, len(X_arr)), desc="Test 3a: Scale 20x"):
     X_train = X_arr[:i]
     y_train = y_arr[:i]
     X_test = X_arr[i:i+1]
@@ -371,7 +372,7 @@ print_header("TEST 4: SSRF vs RIDGE COMPARISON")
 
 ssrf_4_p, ridge_4_p, actual_4 = [], [], []
 
-for i in range(train_window, len(X_arr)):
+for i in tqdm(range(train_window, len(X_arr)), desc="Test 4: SSRF vs Ridge"):
     train_start_4 = i - train_window
     X_train_4 = X_arr[train_start_4:i]
     y_train_4 = y_arr[train_start_4:i]
@@ -475,7 +476,7 @@ train_window_5 = 60
 model_5_p, naive_5_p, random_5_p, hist_5_p, momentum_5_p = [], [], [], [], []
 actual_5 = []
 
-for i in range(train_window_5, len(X_arr_5)):
+for i in tqdm(range(train_window_5, len(X_arr_5)), desc="Test 5: Yield Curve"):
     X_train_5 = X_arr_5[:i]
     y_train_5 = y_arr_5[:i] * SCALE_5
     X_test_5 = X_arr_5[i:i+1]

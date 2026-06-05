@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 from typing import Optional, Dict, List, Tuple, Callable, Union
 from dataclasses import dataclass
+from tqdm import tqdm
 import logging
 
 from .config import BacktestConfig
@@ -148,10 +149,7 @@ class WalkForwardBacktester:
             y_train_window = y.iloc[:train_end_idx]
             historical_means.append(y_train_window.mean())
 
-        if verbose:
-            logger.info(f"Running walk-forward backtest with {n_steps} steps")
-
-        for step in range(n_steps):
+        for step in tqdm(range(n_steps), desc="Walk-forward", disable=not verbose, unit="step"):
             # Calculate train and test indices
             train_end_idx = self.initial_train_window + step * self.step_size
 
@@ -211,9 +209,6 @@ class WalkForwardBacktester:
             predictions.append(pred)
             test_dates.append(test_date)
             train_windows.append((train_start_date, train_end_date))
-
-            if verbose and (step + 1) % 20 == 0:
-                logger.info(f"  Step {step + 1}/{n_steps}: {test_date.strftime('%Y-%m')}")
 
         # Convert to series
         predictions = pd.Series(predictions, index=pd.DatetimeIndex(test_dates))
