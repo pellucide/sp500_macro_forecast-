@@ -335,34 +335,114 @@ def impute_vix_proxy(indicators, returns):
 
 
 def create_groups_from_data(df):
-    """Create feature groups based on columns actually present in the data."""
+    """
+    Create feature groups based on columns actually present in the data.
+    Covers all 125+ raw FRED-MD indicators plus derived features and alternative data.
+    """
     cols = set(df.columns)
-    
+
     groups = {
-        'output_income': [c for c in ['GDPC1', 'PCECC96'] if c in cols],
-        'labor': [c for c in ['UNRATE', 'PAYEMS', 'EMRATIO', 'HOUST', 'PERMIT', 'UNRATE_CHANGE_12M'] if c in cols],
-        'inflation': [c for c in ['CPIAUCSL', 'CPILFESL', 'PCECTPI', 'PCEPILFE', 'GDPDEF', 'PPIFGS'] if c in cols],
-        'interest': [c for c in ['TB3MS', 'TB6MS', 'GS1', 'GS2', 'GS5', 'GS10', 'GS20', 'GS30', 
-                                  'AAA', 'BAA', 'T10Y2YM', 'TEDRATE', 'REAL_10Y',
-                                  'YIELD_SLOPE_10Y3M', 'YIELD_SLOPE_10Y2Y', 'YIELD_SLOPE_2Y3M',
-                                  'BAAFFM', 'AAAFFM', 'CREDIT_SPREAD_BAA', 'CREDIT_SPREAD_QUALITY'] if c in cols],
-        'sentiment': [c for c in ['VIXCLS', 'UMCSENT', 'IC4WSA', 'SENTIMENT_REGIME',
-                                   'VIX_REGIME_HIGH', 'VIX_REGIME_LOW'] if c in cols],
-        'exuberance': [c for c in ['CAPE', 'PUT_CALL_RATIO', 'MARGIN_DEBT',
-                                    'AAII_BULL_BEAR_SPREAD'] if c in cols],
-        'money_supply': [c for c in ['M1SL', 'M2SL', 'M3SL',
-                                      'M1_GROWTH_12M', 'M1_GROWTH_6M', 'M1_GROWTH_3M', 'M1_ACCEL',
-                                      'M2_GROWTH_12M', 'M2_GROWTH_6M', 'M2_GROWTH_3M', 'M2_ACCEL',
-                                      'M3_GROWTH_12M', 'M3_GROWTH_6M', 'M3_GROWTH_3M', 'M3_ACCEL',
-                                      'M1_M2_RATIO', 'M2_M3_RATIO', 'M1_VS_M3_GROWTH'] if c in cols],
+        # Real output & industrial production (17 series + derived)
+        'output_income': [c for c in [
+            'RPI', 'W875RX1', 'DPCERA3M086SBEA',
+            'CMRMTSPL', 'RETAIL',
+            'INDPRO', 'IPFPNSS', 'IPFINAL', 'IPCONGD',
+            'IPDCONGD', 'IPNCONGD', 'IPBUSEQ',
+            'IPMAT', 'IPDMAT', 'IPNMAT',
+            'IPMANSICS', 'IPB51222S', 'IPFUELS',
+        ] if c in cols],
+
+        # Employment, unemployment, wages (27 series + derived)
+        'labor': [c for c in [
+            'CUMFNS', 'CLF16OV', 'CE16OV',
+            'UNRATE', 'UEMPMEAN',
+            'UEMPLT5', 'UEMP5TO14', 'UEMP15OV',
+            'UEMP15T26', 'UEMP27OV',
+            'PAYEMS', 'USGOOD', 'CES1021000001', 'USCONS',
+            'MANEMP', 'DMANEMP', 'NDMANEMP',
+            'SRVPRD', 'USTPU', 'USWTRADE', 'USTRADE',
+            'USFIRE', 'USGOVT', 'CES0600000007',
+            'AWOTMAN', 'AWHMAN',
+            'CES0600000008', 'CES2000000008', 'CES3000000008',
+            'EMRATIO', 'IC4WSA',
+            'UNRATE_CHANGE_12M',
+        ] if c in cols],
+
+        # Housing starts & permits (10 series)
+        'housing': [c for c in [
+            'HOUST', 'HOUSTNE', 'HOUSTMW', 'HOUSTS', 'HOUSTW',
+            'PERMIT', 'PERMITNE', 'PERMITMW', 'PERMITS', 'PERMITW',
+        ] if c in cols],
+
+        # Orders, inventories, consumption (5 series)
+        'orders_inventories': [c for c in [
+            'ACOGNO', 'ANDENO', 'AMDMUO', 'BUSINV', 'ISRATIO',
+        ] if c in cols],
+
+        # CPI, PPI, PCE prices (20 series)
+        'inflation': [c for c in [
+            'WPSFD49207', 'WPSFD49502', 'WPSID61', 'WPSID62',
+            'OILPRICE', 'PPICMM',
+            'CPIAUCSL', 'CPIAPPSL', 'CPITRNSL', 'CPIMEDSL',
+            'CUSR0000SAC', 'CUSR0000SAD', 'CUSR0000SAS',
+            'CPIULFSL', 'CUSR0000SA0L2', 'CUSR0000SA0L5',
+            'PCEPI',
+            'DDURRG3M086SBEA', 'DNDGRG3M086SBEA', 'DSERRG3M086SBEA',
+            'CPILFESL', 'PCECTPI', 'PCEPILFE', 'GDPDEF', 'PPIFGS',
+        ] if c in cols],
+
+        # Interest rates, yield curve, spreads (21 series + derived)
+        'interest': [c for c in [
+            'FEDFUNDS', 'CP3M',
+            'TB3MS', 'TB6MS', 'GS1', 'GS5', 'GS10',
+            'GS2', 'GS20', 'GS30',
+            'AAA', 'BAA',
+            'TB3SMFFM', 'TB6SMFFM', 'T1YFFM', 'T5YFFM', 'T10YFFM',
+            'AAAFFM', 'BAAFFM',
+            'T10Y2YM', 'TEDRATE',
+            'YIELD_SLOPE_10Y3M', 'YIELD_SLOPE_10Y2Y', 'YIELD_SLOPE_2Y3M',
+            'CREDIT_SPREAD_BAA', 'CREDIT_SPREAD_QUALITY', 'REAL_10Y',
+        ] if c in cols],
+
+        # Money supply & credit (11 series + derived)
+        'money_credit': [c for c in [
+            'M1SL', 'M2SL', 'M2REAL', 'M3SL',
+            'BOGMBASE', 'TOTRESNS', 'NONBORRES',
+            'BUSLOANS', 'REALLN', 'NONREVSL',
+            'DTCOLNVHFNM', 'DTCTHFNM',
+            'M1_GROWTH_12M', 'M1_GROWTH_6M', 'M1_GROWTH_3M', 'M1_ACCEL',
+            'M2_GROWTH_12M', 'M2_GROWTH_6M', 'M2_GROWTH_3M', 'M2_ACCEL',
+            'M3_GROWTH_12M', 'M3_GROWTH_6M', 'M3_GROWTH_3M', 'M3_ACCEL',
+            'M1_M2_RATIO', 'M2_M3_RATIO', 'M1_VS_M3_GROWTH',
+        ] if c in cols],
+
+        # Exchange rates (5 series)
+        'exchange_rates': [c for c in [
+            'TWEXAFEGSMTH', 'EXSZUS', 'EXJPUS', 'EXUSUK', 'EXCAUS',
+        ] if c in cols],
+
+        # Stock market & sentiment (5 series + derived)
+        'sentiment': [c for c in [
+            'SP500', 'UMCSENT', 'VIXCLS', 'INVEST',
+            'SENTIMENT_REGIME',
+            'VIX_REGIME_HIGH', 'VIX_REGIME_LOW',
+        ] if c in cols],
+
+        # Alternative/exuberance indicators
+        'exuberance': [c for c in [
+            'CAPE', 'PUT_CALL_RATIO', 'MARGIN_DEBT',
+            'AAII_BULL_BEAR_SPREAD',
+        ] if c in cols],
     }
-    
+
     # Remove empty groups
     groups = {k: v for k, v in groups.items() if v}
-    
+
+    total = sum(len(v) for v in groups.values())
+    logger.info(f"  Feature groups: {len(groups)} groups, {total} total features")
     for name, features in groups.items():
-        logger.info(f"  Group '{name}': {len(features)} features")
-    
+        logger.info(f"    Group '{name}': {len(features)} features")
+
     return groups
 
 

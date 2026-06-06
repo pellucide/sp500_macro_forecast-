@@ -216,6 +216,55 @@ def run_model(model_type, step_size=3, train_window=120,
     }
 
 
+def predict_next_move(model_type, train_window=120, non_overlap=False):
+    """Train on all data and predict the next 3-month forward return.
+
+    Returns a single float: the predicted return (e.g. 0.032 = +3.2%).
+    """
+    indicators = load_fred_data()
+    monthly_ret, target = load_forward_returns(FORWARD_HORIZON)
+    indicators = impute_vix_proxy(indicators, monthly_ret)
+
+    alt_features = load_alternative_features()
+    if alt_features is not None and len(alt_features) > 0:
+        indicators = indicators.join(alt_features, how='left')
+        indicators = indicators.ffill()
+        for col in alt_features.columns:
+            if col in indicators.columns and indicators[col].isna().any():
+                first_val = indicators[col].dropna()
+                if len(first_val) > 0:
+                    indicators[col] = indicators[col].fillna(first_val.iloc[0])
+
+    groups = create_groups_from_data(indicators)
+
+    common_idx = indicators.index.intersection(target.index)
+    X = indicators.loc[common_idx].sort_index().ffill()
+    y = target.loc[common_idx].sort_index()
+    valid = y.notna()
+    X = X[valid]
+    y = y[valid]
+
+    if non_overlap:
+        X = X.iloc[::FORWARD_HORIZON]
+        y = y.iloc[::FORWARD_HORIZON]
+
+    config = SSRFConfig(
+        t_stat_threshold=0.75,
+        n_factors=10,
+        regime_window=12,
+        model_type=model_type,
+        use_regime_detection=True,
+        prediction_scale=1.0,
+    )
+
+    backtester = WalkForwardBacktester(
+        model_class=SSRFModel,
+        initial_train_window=train_window,
+    )
+
+    return backtester.predict_next(X, y, groups, model_config=config)
+
+
 def _run_single_model(params):
     """Run a single model with given params. Top-level function for multiprocessing."""
     result = run_model(
@@ -399,6 +448,8 @@ if __name__ == "__main__":
                              '(sub-samples X and y to every 3rd month)')
     parser.add_argument('--sweep', action='store_true',
                         help='Run leverage sweep across all combos and models')
+    parser.add_argument('--predict-next', action='store_true',
+                        help='After backtest, train on all data and predict next 3-month return')
     parser.add_argument('--workers', type=int, default=os.cpu_count(),
                         help=f'Number of parallel workers (default: {os.cpu_count()}, 1 = sequential)')
     args = parser.parse_args()
@@ -578,3 +629,25 @@ if __name__ == "__main__":
     else:
         print()
         print_results(all_results, non_overlap=args.non_overlap)
+
+    # Predict next move (train on all data, predict the next 3-month forward return)
+    if args.predict_next:
+        print()
+        print("=" * 80)
+        print("NEXT MOVE — Train on ALL data and predict upcoming 3-month return")
+        print(f"Walk-forward test period: {'NON-OVERLAPPING' if args.non_overlap else 'OVERLAPPING'}")
+        print("=" * 80)
+        print(f"{'Model':<16} {'Prediction':>12} {'Signal':>10}")
+        print("-" * 42)
+        for model_type in models_to_run:
+            try:
+                pred = predict_next_move(
+                    model_type,
+                    train_window=120,
+                    non_overlap=args.non_overlap,
+                )
+                signal = "LONG" if pred > 0 else "SHORT"
+                print(f"{model_type:<16} {pred:>+10.4f}  {signal:>8}")
+            except Exception as e:
+                print(f"{model_type:<16} {'FAILED':>12}  {str(e):>10}")
+        print("=" * 80)

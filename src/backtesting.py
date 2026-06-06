@@ -270,6 +270,54 @@ class WalkForwardBacktester:
 
         return self.results
 
+    def predict_next(
+        self,
+        X: pd.DataFrame,
+        y: pd.Series,
+        groups: Dict[str, List[str]],
+        model_config: Optional[SSRFConfig] = None,
+    ) -> float:
+        """
+        Train on ALL available data and predict the next 3-month forward return.
+
+        After a walk-forward backtest completes, this gives a current signal
+        for portfolio adjustment: train on everything, predict the next period.
+
+        Args:
+            X: Feature DataFrame (all available data)
+            y: Target series (all available returns)
+            groups: Feature groups for screening
+            model_config: Optional SSRF configuration
+
+        Returns:
+            Predicted 3-month forward return (e.g. 0.032 = +3.2%)
+        """
+        y = ensure_series(y, "y")
+
+        # Align and sort (same as run())
+        common_idx = X.index.intersection(y.index)
+        X = X.loc[common_idx].sort_index()
+        y = y.loc[common_idx].sort_index()
+
+        # Use the last row of X as features for the next prediction
+        X_features = X.iloc[[-1]]
+        prediction_date = X.index[-1]
+
+        # Train on all available data
+        config = model_config or SSRFConfig()
+        model = self.model_class(config)
+
+        try:
+            model.fit(X, y, groups)
+            pred = model.predict(X_features, y)
+            pred_value = pred.values[0]
+        except Exception as e:
+            logger.warning(f"Next-predict failed: {e}. Using historical mean as fallback.")
+            pred_value = y.mean()
+
+        self._next_prediction = pred_value
+        return pred_value
+
     def _compute_metrics(
         self,
         predictions: pd.Series,

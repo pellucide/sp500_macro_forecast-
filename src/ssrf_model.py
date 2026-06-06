@@ -170,6 +170,25 @@ class GroupwiseScreen:
 
             X_group = X[available]
 
+            # NEW: Drop features that are entirely NaN in this training window.
+            # These features (e.g. ACOGNO, ANDENO, TWEXAFEGSMTH) may have later
+            # start dates and will become available in future walk-forward steps.
+            # Including them contaminates ALL rows with NaN, causing PCA to fail.
+            n_obs = len(X_group)
+            valid_features = [c for c in X_group.columns
+                              if X_group[c].notna().sum() >= min(10, n_obs)]
+            if not valid_features:
+                logger.debug(f"Group '{group_name}': no features with valid data")
+                selected[group_name] = pd.DataFrame(index=X.index)
+                continue
+            if len(valid_features) < len(available):
+                logger.debug(
+                    f"Group '{group_name}': dropped {len(available) - len(valid_features)} "
+                    f"features with no valid data in this window"
+                )
+            X_group = X_group[valid_features]
+            available = valid_features
+
             # Compute univariate t-statistics
             t_stats = self._compute_t_statistics(X_group, y)
 
@@ -977,7 +996,16 @@ class SSRFModel:
         y_valid = y.loc[valid_mask]
 
         if len(X_final_valid) < 20:
-            logger.error("Insufficient training samples")
+            logger.error("Insufficient training samples for final regression. "
+                         "Using benchmark prediction.")
+            self.state = ModelState(
+                selected_features={},
+                scaling_factors={},
+                scaler=StandardScaler(),
+                pca=PCA(n_components=self.config.n_factors),
+                mean_factors_train=np.zeros(self.config.n_factors),
+                volatility_percentiles_train=np.zeros(self.config.regime_window)
+            )
             return self
 
         # Fit the model
